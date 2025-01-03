@@ -15,7 +15,7 @@
 import os
 
 from platformio import util
-from platformio.clients.http import HTTPClientError, InternetIsOffline
+from platformio.http import HTTPClientError, InternetConnectionError
 from platformio.package.exception import UnknownPackageError
 from platformio.package.manager.base import BasePackageManager
 from platformio.package.manager.core import get_installed_core_packages
@@ -38,7 +38,7 @@ class PlatformPackageManager(BasePackageManager):  # pylint: disable=too-many-an
     def manifest_names(self):
         return PackageType.get_manifest_map()[PackageType.PLATFORM]
 
-    def install(  # pylint: disable=arguments-differ,too-many-arguments
+    def install(  # pylint: disable=arguments-differ,too-many-arguments,too-many-positional-arguments
         self,
         spec,
         skip_dependencies=False,
@@ -53,9 +53,9 @@ class PlatformPackageManager(BasePackageManager):  # pylint: disable=too-many-an
             # set logging level for underlying tool manager
             p.pm.set_log_level(self.log.getEffectiveLevel())
             p.ensure_engine_compatible()
-        except IncompatiblePlatform as e:
+        except IncompatiblePlatform as exc:
             super().uninstall(pkg, skip_dependencies=True)
-            raise e
+            raise exc
         if project_env:
             p.configure_project_packages(project_env, project_targets)
         if not skip_dependencies:
@@ -128,7 +128,7 @@ class PlatformPackageManager(BasePackageManager):  # pylint: disable=too-many-an
                 key = "%s:%s" % (board["platform"], board["id"])
                 if key not in know_boards:
                     boards.append(board)
-        except (HTTPClientError, InternetIsOffline):
+        except (HTTPClientError, InternetConnectionError):
             pass
         return sorted(boards, key=lambda b: b["name"])
 

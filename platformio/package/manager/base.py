@@ -21,7 +21,7 @@ import click
 import semantic_version
 
 from platformio import fs, util
-from platformio.commands import PlatformioCLI
+from platformio.cli import PlatformioCLI
 from platformio.compat import ci_strings_are_equal
 from platformio.package.exception import ManifestException, MissingPackageManifestError
 from platformio.package.lockfile import LockFile
@@ -35,7 +35,7 @@ from platformio.package.manager._update import PackageManagerUpdateMixin
 from platformio.package.manifest.parser import ManifestParserFactory
 from platformio.package.meta import (
     PackageItem,
-    PackageMetaData,
+    PackageMetadata,
     PackageSpec,
     PackageType,
 )
@@ -59,9 +59,10 @@ class BasePackageManager(  # pylint: disable=too-many-public-methods,too-many-in
 ):
     _MEMORY_CACHE = {}
 
-    def __init__(self, pkg_type, package_dir):
+    def __init__(self, pkg_type, package_dir, compatibility=None):
         self.pkg_type = pkg_type
         self.package_dir = package_dir
+        self.compatibility = compatibility
         self.log = self._setup_logger()
 
         self._MEMORY_CACHE = {}
@@ -115,10 +116,10 @@ class BasePackageManager(  # pylint: disable=too-many-public-methods,too-many-in
         self._MEMORY_CACHE.clear()
 
     @staticmethod
-    def is_system_compatible(value):
+    def is_system_compatible(value, custom_system=None):
         if not value or "*" in value:
             return True
-        return util.items_in_list(value, util.get_systype())
+        return util.items_in_list(value, custom_system or util.get_systype())
 
     @staticmethod
     def ensure_dir_exists(path):
@@ -187,9 +188,9 @@ class BasePackageManager(  # pylint: disable=too-many-public-methods,too-many-in
                 result = ManifestParserFactory.new_from_file(item).as_dict()
                 self.memcache_set(cache_key, result)
                 return result
-            except ManifestException as e:
+            except ManifestException as exc:
                 if not PlatformioCLI.in_silence():
-                    self.log.warning(click.style(str(e), fg="yellow"))
+                    self.log.warning(click.style(str(exc), fg="yellow"))
         raise MissingPackageManifestError(", ".join(self.manifest_names))
 
     @staticmethod
@@ -198,7 +199,7 @@ class BasePackageManager(  # pylint: disable=too-many-public-methods,too-many-in
 
     def build_metadata(self, pkg_dir, spec, vcs_revision=None):
         manifest = self.load_manifest(pkg_dir)
-        metadata = PackageMetaData(
+        metadata = PackageMetadata(
             type=self.pkg_type,
             name=manifest.get("name"),
             version=manifest.get("version"),
@@ -279,11 +280,15 @@ class BasePackageManager(  # pylint: disable=too-many-public-methods,too-many-in
 
         # external "URL" mismatch
         if spec.external:
-            # local folder mismatch
-            if os.path.abspath(spec.uri) == os.path.abspath(pkg.path) or (
+            # local/symlinked folder mismatch
+            check_conds = [
+                os.path.abspath(spec.uri) == os.path.abspath(pkg.path),
                 spec.uri.startswith("file://")
-                and os.path.abspath(pkg.path) == os.path.abspath(spec.uri[7:])
-            ):
+                and os.path.abspath(pkg.path) == os.path.abspath(spec.uri[7:]),
+                spec.uri.startswith("symlink://")
+                and os.path.abspath(pkg.path) == os.path.abspath(spec.uri[10:]),
+            ]
+            if any(check_conds):
                 return True
             if spec.uri != pkg.metadata.spec.uri:
                 return False

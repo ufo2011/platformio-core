@@ -14,12 +14,12 @@
 
 import os
 import sys
-from traceback import format_exc
+import traceback
 
 import click
 
 from platformio import __version__, exception, maintenance
-from platformio.commands import PlatformioCLI
+from platformio.cli import PlatformioCLI
 from platformio.compat import IS_CYGWIN, ensure_python3
 
 
@@ -27,11 +27,11 @@ from platformio.compat import IS_CYGWIN, ensure_python3
     cls=PlatformioCLI, context_settings=dict(help_option_names=["-h", "--help"])
 )
 @click.version_option(__version__, prog_name="PlatformIO Core")
-@click.option("--force", "-f", is_flag=True, help="DEPRECATED")
+@click.option("--force", "-f", is_flag=True, help="DEPRECATED", hidden=True)
 @click.option("--caller", "-c", help="Caller ID (service)")
 @click.option("--no-ansi", is_flag=True, help="Do not print ANSI control characters")
 @click.pass_context
-def cli(ctx, force, caller, no_ansi):
+def cli(ctx, force, caller, no_ansi):  # pylint: disable=unused-argument
     try:
         if (
             no_ansi
@@ -53,13 +53,13 @@ def cli(ctx, force, caller, no_ansi):
     except:  # pylint: disable=bare-except
         pass
 
-    maintenance.on_platformio_start(ctx, force, caller)
+    maintenance.on_cmd_start(ctx, caller)
 
 
 @cli.result_callback()
 @click.pass_context
-def process_result(ctx, result, *_, **__):
-    maintenance.on_platformio_end(ctx, result)
+def process_result(*_, **__):
+    maintenance.on_cmd_end()
 
 
 def configure():
@@ -96,31 +96,32 @@ def main(argv=None):
     if argv:
         assert isinstance(argv, list)
         sys.argv = argv
+
     try:
         ensure_python3(raise_exception=True)
         configure()
         cli()  # pylint: disable=no-value-for-parameter
-    except SystemExit as e:
-        if e.code and str(e.code).isdigit():
-            exit_code = int(e.code)
-    except Exception as e:  # pylint: disable=broad-except
-        if not isinstance(e, exception.ReturnErrorCode):
-            maintenance.on_platformio_exception(e)
-            error_str = "Error: "
-            if isinstance(e, exception.PlatformioException):
-                error_str += str(e)
+    except SystemExit as exc:
+        if exc.code and str(exc.code).isdigit():
+            exit_code = int(exc.code)
+    except Exception as exc:  # pylint: disable=broad-except
+        if not isinstance(exc, exception.ReturnErrorCode):
+            maintenance.on_platformio_exception(exc)
+            error_str = f"{exc.__class__.__name__}: "
+            if isinstance(exc, exception.PlatformioException):
+                error_str += str(exc)
             else:
-                error_str += format_exc()
+                error_str += traceback.format_exc()
                 error_str += """
 ============================================================
 
 An unexpected error occurred. Further steps:
 
 * Verify that you have the latest version of PlatformIO using
-  `pip install -U platformio` command
+  `python -m pip install -U platformio` command
 
 * Try to find answer in FAQ Troubleshooting section
-  https://docs.platformio.org/page/faq.html
+  https://docs.platformio.org/page/faq/index.html
 
 * Report this problem to the developers
   https://github.com/platformio/platformio-core/issues
@@ -128,7 +129,9 @@ An unexpected error occurred. Further steps:
 ============================================================
 """
             click.secho(error_str, fg="red", err=True)
-        exit_code = int(str(e)) if str(e).isdigit() else 1
+        exit_code = int(str(exc)) if str(exc).isdigit() else 1
+
+    maintenance.on_platformio_exit()
     sys.argv = prev_sys_argv
     return exit_code
 

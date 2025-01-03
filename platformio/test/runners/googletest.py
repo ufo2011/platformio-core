@@ -17,13 +17,11 @@ import re
 
 import click
 
-from platformio.compat import IS_WINDOWS
 from platformio.test.result import TestCase, TestCaseSource, TestStatus
 from platformio.test.runners.base import TestRunnerBase
 
 
-class DoctestTestCaseParser:
-
+class GoogletestTestCaseParser:
     # Examples:
     # [ RUN      ] FooTest.Bar
     # ...
@@ -90,20 +88,12 @@ class DoctestTestCaseParser:
 
 
 class GoogletestTestRunner(TestRunnerBase):
-
-    EXTRA_LIB_DEPS = ["google/googletest@^1.11.0"]
+    EXTRA_LIB_DEPS = ["google/googletest@^1.15.2"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._tc_parser = DoctestTestCaseParser()
+        self._tc_parser = GoogletestTestCaseParser()
         os.environ["GTEST_COLOR"] = "no"  # disable ANSI symbols
-
-    def configure_build_env(self, env):
-        if self.platform.is_embedded():
-            return
-        env.Append(CXXFLAGS=["-std=c++11"])
-        if not IS_WINDOWS:
-            env.Append(CCFLAGS=["-pthread"], LINKFLAGS=["-pthread"])
 
     def on_testing_line_output(self, line):
         if self.options.verbose:
@@ -111,8 +101,9 @@ class GoogletestTestRunner(TestRunnerBase):
 
         test_case = self._tc_parser.parse(line)
         if test_case:
-            click.echo(test_case.humanize())
             self.test_suite.add_case(test_case)
+            if not self.options.verbose:
+                click.echo(test_case.humanize())
 
         if "Global test environment tear-down" in line:
             self.test_suite.on_finish()

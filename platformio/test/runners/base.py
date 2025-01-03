@@ -18,7 +18,7 @@ from platformio.exception import ReturnErrorCode
 from platformio.platform.factory import PlatformFactory
 from platformio.test.exception import UnitTestSuiteError
 from platformio.test.result import TestCase, TestStatus
-from platformio.test.runners.readers.program import ProgramTestOutputReader
+from platformio.test.runners.readers.native import NativeTestOutputReader
 from platformio.test.runners.readers.serial import SerialTestOutputReader
 
 CTX_META_TEST_IS_RUNNING = __name__ + ".test_running"
@@ -26,9 +26,9 @@ CTX_META_TEST_RUNNING_NAME = __name__ + ".test_running_name"
 
 
 class TestRunnerOptions:  # pylint: disable=too-many-instance-attributes
-    def __init__(  # pylint: disable=too-many-arguments
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
-        verbose=False,
+        verbose=0,
         without_building=False,
         without_uploading=False,
         without_testing=False,
@@ -54,7 +54,6 @@ class TestRunnerOptions:  # pylint: disable=too-many-instance-attributes
 
 
 class TestRunnerBase:
-
     NAME = None
     EXTRA_LIB_DEPS = None
     TESTCASE_PARSE_RE = None
@@ -63,8 +62,8 @@ class TestRunnerBase:
         self.test_suite = test_suite
         self.options = options
         self.project_config = project_config
-        self.platform = PlatformFactory.new(
-            self.project_config.get(f"env:{self.test_suite.env_name}", "platform"),
+        self.platform = PlatformFactory.from_env(
+            self.test_suite.env_name,
             autoinstall=True,
         )
         self.cmd_ctx = None
@@ -96,6 +95,8 @@ class TestRunnerBase:
             self.setup()
             for stage in ("building", "uploading", "testing"):
                 getattr(self, f"stage_{stage}")()
+                if self.options.verbose:
+                    click.echo()
         except Exception as exc:  # pylint: disable=broad-except
             click.secho(str(exc), fg="red", err=True)
             self.test_suite.add_case(
@@ -115,6 +116,9 @@ class TestRunnerBase:
     def stage_building(self):
         if self.options.without_building:
             return None
+        # run "building" once at the "uploading" stage for the embedded target
+        if not self.options.without_uploading and self.platform.is_embedded():
+            return None
         click.secho("Building...", bold=True)
         targets = ["__test"]
         if not self.options.without_debugging:
@@ -123,16 +127,19 @@ class TestRunnerBase:
             targets.append("checkprogsize")
         try:
             return self.run_project_targets(targets)
-        except ReturnErrorCode:
+        except ReturnErrorCode as exc:
             raise UnitTestSuiteError(
                 "Building stage has failed, see errors above. "
-                "Use `pio test --verbose` option to enable verbose output."
-            )
+                "Use `pio test -vvv` option to enable verbose output."
+            ) from exc
 
     def stage_uploading(self):
-        if self.options.without_uploading or not self.platform.is_embedded():
+        is_embedded = self.platform.is_embedded()
+        if self.options.without_uploading or not is_embedded:
             return None
-        click.secho("Uploading...", bold=True)
+        click.secho(
+            "Building & Uploading..." if is_embedded else "Uploading...", bold=True
+        )
         targets = ["upload"]
         if self.options.without_building:
             targets.append("nobuild")
@@ -142,18 +149,18 @@ class TestRunnerBase:
             targets.append("__debug")
         try:
             return self.run_project_targets(targets)
-        except ReturnErrorCode:
+        except ReturnErrorCode as exc:
             raise UnitTestSuiteError(
                 "Uploading stage has failed, see errors above. "
-                "Use `pio test --verbose` option to enable verbose output."
-            )
+                "Use `pio test -vvv` option to enable verbose output."
+            ) from exc
 
     def stage_testing(self):
         if self.options.without_testing:
             return None
         click.secho("Testing...", bold=True)
         test_port = self.get_test_port()
-        program_conds = [
+        native_conds = [
             not self.platform.is_embedded()
             and (not test_port or "://" not in test_port),
             self.project_config.get(
@@ -161,8 +168,8 @@ class TestRunnerBase:
             ),
         ]
         reader = (
-            ProgramTestOutputReader(self)
-            if any(program_conds)
+            NativeTestOutputReader(self)
+            if any(native_conds)
             else SerialTestOutputReader(self)
         )
         return reader.begin()
@@ -172,21 +179,21 @@ class TestRunnerBase:
 
     def run_project_targets(self, targets):
         # pylint: disable=import-outside-toplevel
-        from platformio.commands.run.command import cli as run_cmd
+        from platformio.run.cli import cli as run_cmd
 
         assert self.cmd_ctx
         return self.cmd_ctx.invoke(
             run_cmd,
             project_conf=self.project_config.path,
             upload_port=self.options.upload_port,
-            verbose=self.options.verbose,
-            silent=not self.options.verbose,
+            verbose=self.options.verbose > 2,
+            silent=self.options.verbose < 2,
             environment=[self.test_suite.env_name],
             disable_auto_clean="nobuild" in targets,
             target=targets,
         )
 
-    def configure_build_env(self, env):  # pylint: disable=no-self-use
+    def configure_build_env(self, env):
         """
         Configure SCons build environment
         Called in "builder/tools/piotest" tool
@@ -204,5 +211,5 @@ class TestRunnerBase:
             self._testing_output_buffer = self._testing_output_buffer[nl_pos + 1 :]
             self.on_testing_line_output(line)
 
-    def on_testing_line_output(self, line):  # pylint: disable=no-self-use
+    def on_testing_line_output(self, line):
         click.echo(line, nl=False)

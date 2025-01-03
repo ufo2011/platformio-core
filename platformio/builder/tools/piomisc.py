@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
-
 import os
 import sys
 
@@ -22,19 +20,23 @@ from platformio.proc import exec_command
 
 
 @util.memoized()
-def GetCompilerType(env):
-    if env.subst("$CC").endswith("-gcc"):
+def GetCompilerType(env):  # pylint: disable=too-many-return-statements
+    CC = env.subst("$CC")
+    if CC.endswith("-gcc"):
         return "gcc"
+    if os.path.basename(CC) == "clang":
+        return "clang"
     try:
+
         sysenv = os.environ.copy()
         sysenv["PATH"] = str(env["ENV"]["PATH"])
-        result = exec_command([env.subst("$CC"), "-v"], env=sysenv)
+        result = exec_command([CC, "-v"], env=sysenv)
     except OSError:
         return None
     if result["returncode"] != 0:
         return None
     output = "".join([result["out"], result["err"]]).lower()
-    if "clang" in output and "LLVM" in output:
+    if "clang version" in output:
         return "clang"
     if "gcc" in output:
         return "gcc"
@@ -114,7 +116,15 @@ def ConfigureDebugTarget(env):
     ]
 
     if optimization_flags:
-        env.AppendUnique(ASFLAGS=optimization_flags, LINKFLAGS=optimization_flags)
+        env.AppendUnique(
+            ASFLAGS=[
+                # skip -O flags for assembler
+                f
+                for f in optimization_flags
+                if f.startswith("-g")
+            ],
+            LINKFLAGS=optimization_flags,
+        )
 
 
 def GetExtraScripts(env, scope):

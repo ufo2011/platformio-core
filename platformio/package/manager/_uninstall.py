@@ -22,7 +22,7 @@ from platformio.package.exception import UnknownPackageError
 from platformio.package.meta import PackageItem, PackageSpec
 
 
-class PackageManagerUninstallMixin(object):
+class PackageManagerUninstallMixin:
     def uninstall(self, spec, skip_dependencies=False):
         try:
             self.lock()
@@ -34,6 +34,12 @@ class PackageManagerUninstallMixin(object):
         pkg = self.get_package(spec)
         if not pkg or not pkg.metadata:
             raise UnknownPackageError(spec)
+
+        uninstalled_pkgs = self.memcache_get("__uninstalled_pkgs", [])
+        if uninstalled_pkgs and pkg.path in uninstalled_pkgs:
+            return pkg
+        uninstalled_pkgs.append(pkg.path)
+        self.memcache_set("__uninstalled_pkgs", uninstalled_pkgs)
 
         self.log.info(
             "Removing %s @ %s"

@@ -12,107 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import time
-from urllib.parse import urlparse
 
 import click
 
-from platformio import __registry_mirror_hosts__
-from platformio.cache import ContentCache
-from platformio.clients.http import HTTPClient
-from platformio.clients.registry import RegistryClient
 from platformio.package.exception import UnknownPackageError
 from platformio.package.meta import PackageSpec
 from platformio.package.version import cast_version_to_semver
+from platformio.registry.client import RegistryClient
+from platformio.registry.mirror import RegistryFileMirrorIterator
 
 
-class RegistryFileMirrorIterator(object):
-
-    HTTP_CLIENT_INSTANCES = {}
-
-    def __init__(self, download_url):
-        self.download_url = download_url
-        self._url_parts = urlparse(download_url)
-        self._mirror = "%s://%s" % (self._url_parts.scheme, self._url_parts.netloc)
-        self._visited_mirrors = []
-
-    def __iter__(self):  # pylint: disable=non-iterator-returned
-        return self
-
-    def __next__(self):
-        cache_key = ContentCache.key_from_args(
-            "head", self.download_url, self._visited_mirrors
-        )
-        with ContentCache("http") as cc:
-            result = cc.get(cache_key)
-            if result is not None:
-                try:
-                    headers = json.loads(result)
-                    return (
-                        headers["Location"],
-                        headers["X-PIO-Content-SHA256"],
-                    )
-                except (ValueError, KeyError):
-                    pass
-
-            http = self.get_http_client()
-            response = http.send_request(
-                "head",
-                self._url_parts.path,
-                allow_redirects=False,
-                params=dict(bypass=",".join(self._visited_mirrors))
-                if self._visited_mirrors
-                else None,
-                x_with_authorization=RegistryClient.allowed_private_packages(),
-            )
-            stop_conditions = [
-                response.status_code not in (302, 307),
-                not response.headers.get("Location"),
-                not response.headers.get("X-PIO-Mirror"),
-                response.headers.get("X-PIO-Mirror") in self._visited_mirrors,
-            ]
-            if any(stop_conditions):
-                raise StopIteration
-            self._visited_mirrors.append(response.headers.get("X-PIO-Mirror"))
-            cc.set(
-                cache_key,
-                json.dumps(
-                    {
-                        "Location": response.headers.get("Location"),
-                        "X-PIO-Content-SHA256": response.headers.get(
-                            "X-PIO-Content-SHA256"
-                        ),
-                    }
-                ),
-                "1h",
-            )
-            return (
-                response.headers.get("Location"),
-                response.headers.get("X-PIO-Content-SHA256"),
-            )
-
-    def get_http_client(self):
-        if self._mirror not in RegistryFileMirrorIterator.HTTP_CLIENT_INSTANCES:
-            endpoints = [self._mirror]
-            for host in __registry_mirror_hosts__:
-                endpoint = f"https://dl.{host}"
-                if endpoint not in endpoints:
-                    endpoints.append(endpoint)
-            RegistryFileMirrorIterator.HTTP_CLIENT_INSTANCES[self._mirror] = HTTPClient(
-                endpoints
-            )
-        return RegistryFileMirrorIterator.HTTP_CLIENT_INSTANCES[self._mirror]
-
-
-class PackageManagerRegistryMixin(object):
+class PackageManagerRegistryMixin:
     def install_from_registry(self, spec, search_qualifiers=None):
+        package = version = None
         if spec.owner and spec.name and not search_qualifiers:
             package = self.fetch_registry_package(spec)
             if not package:
                 raise UnknownPackageError(spec.humanize())
             version = self.pick_best_registry_version(package["versions"], spec)
-        else:
+        elif spec.id or spec.name:
             packages = self.search_registry_packages(spec, search_qualifiers)
             if not packages:
                 raise UnknownPackageError(spec.humanize())
@@ -123,7 +42,7 @@ class PackageManagerRegistryMixin(object):
         if not package or not version:
             raise UnknownPackageError(spec.humanize())
 
-        pkgfile = self._pick_compatible_pkg_file(version["files"]) if version else None
+        pkgfile = self.pick_compatible_pkg_file(version["files"]) if version else None
         if not pkgfile:
             raise UnknownPackageError(spec.humanize())
 
@@ -138,9 +57,9 @@ class PackageManagerRegistryMixin(object):
                     ),
                     checksum or pkgfile["checksum"]["sha256"],
                 )
-            except Exception as e:  # pylint: disable=broad-except
+            except Exception as exc:  # pylint: disable=broad-except
                 self.log.warning(
-                    click.style("Warning! Package Mirror: %s" % e, fg="yellow")
+                    click.style("Warning! Package Mirror: %s" % exc, fg="yellow")
                 )
                 self.log.warning(
                     click.style("Looking for another mirror...", fg="yellow")
@@ -244,7 +163,7 @@ class PackageManagerRegistryMixin(object):
             time.sleep(1)
         return (None, None)
 
-    def filter_incompatible_registry_versions(self, versions, spec=None):
+    def get_compatible_registry_versions(self, versions, spec=None, custom_system=None):
         assert not spec or isinstance(spec, PackageSpec)
         result = []
         for version in versions:
@@ -252,22 +171,27 @@ class PackageManagerRegistryMixin(object):
             if spec and spec.requirements and semver not in spec.requirements:
                 continue
             if not any(
-                self.is_system_compatible(f.get("system")) for f in version["files"]
+                self.is_system_compatible(f.get("system"), custom_system=custom_system)
+                for f in version["files"]
             ):
                 continue
             result.append(version)
         return result
 
-    def pick_best_registry_version(self, versions, spec=None):
+    def pick_best_registry_version(self, versions, spec=None, custom_system=None):
         best = None
-        for version in self.filter_incompatible_registry_versions(versions, spec):
+        for version in self.get_compatible_registry_versions(
+            versions, spec, custom_system
+        ):
             semver = cast_version_to_semver(version["name"])
             if not best or (semver > cast_version_to_semver(best["name"])):
                 best = version
         return best
 
-    def _pick_compatible_pkg_file(self, version_files):
+    def pick_compatible_pkg_file(self, version_files, custom_system=None):
         for item in version_files:
-            if self.is_system_compatible(item.get("system")):
+            if self.is_system_compatible(
+                item.get("system"), custom_system=custom_system
+            ):
                 return item
         return None

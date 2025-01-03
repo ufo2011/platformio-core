@@ -19,11 +19,11 @@ import tempfile
 
 import click
 
-from platformio import app, fs
-from platformio.commands.run.command import cli as cmd_run
+from platformio import fs
 from platformio.exception import CIBuildEnvsEmpty
 from platformio.project.commands.init import project_init_cmd, validate_boards
 from platformio.project.config import ProjectConfig
+from platformio.run.cli import cli as cmd_run
 
 
 def validate_path(ctx, param, value):  # pylint: disable=unused-argument
@@ -39,8 +39,8 @@ def validate_path(ctx, param, value):  # pylint: disable=unused-argument
     try:
         assert invalid_path is None
         return value
-    except AssertionError:
-        raise click.BadParameter("Found invalid path: %s" % invalid_path)
+    except AssertionError as exc:
+        raise click.BadParameter("Found invalid path: %s" % invalid_path) from exc
 
 
 @click.command("ci", short_help="Continuous Integration")
@@ -51,20 +51,19 @@ def validate_path(ctx, param, value):  # pylint: disable=unused-argument
 @click.option(
     "--build-dir",
     default=tempfile.mkdtemp,
-    type=click.Path(file_okay=False, dir_okay=True, writable=True, resolve_path=True),
+    type=click.Path(file_okay=False, dir_okay=True, writable=True),
 )
 @click.option("--keep-build-dir", is_flag=True)
 @click.option(
     "-c",
     "--project-conf",
-    type=click.Path(
-        exists=True, file_okay=True, dir_okay=False, readable=True, resolve_path=True
-    ),
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, readable=True),
 )
 @click.option("-O", "--project-option", multiple=True)
+@click.option("-e", "--environment", "environments", multiple=True)
 @click.option("-v", "--verbose", is_flag=True)
 @click.pass_context
-def cli(  # pylint: disable=too-many-arguments, too-many-branches
+def cli(  # pylint: disable=too-many-arguments,too-many-positional-arguments, too-many-branches
     ctx,
     src,
     lib,
@@ -74,17 +73,15 @@ def cli(  # pylint: disable=too-many-arguments, too-many-branches
     keep_build_dir,
     project_conf,
     project_option,
+    environments,
     verbose,
 ):
-
     if not src and os.getenv("PLATFORMIO_CI_SRC"):
         src = validate_path(ctx, None, os.getenv("PLATFORMIO_CI_SRC").split(":"))
     if not src:
         raise click.BadParameter("Missing argument 'src'")
 
     try:
-        app.set_session_var("force_option", True)
-
         if not keep_build_dir and os.path.isdir(build_dir):
             fs.rmtree(build_dir)
         if not os.path.isdir(build_dir):
@@ -110,12 +107,14 @@ def cli(  # pylint: disable=too-many-arguments, too-many-branches
         ctx.invoke(
             project_init_cmd,
             project_dir=build_dir,
-            board=board,
-            project_option=project_option,
+            boards=board,
+            project_options=project_option,
         )
 
         # process project
-        ctx.invoke(cmd_run, project_dir=build_dir, verbose=verbose)
+        ctx.invoke(
+            cmd_run, project_dir=build_dir, environment=environments, verbose=verbose
+        )
     finally:
         if not keep_build_dir:
             fs.rmtree(build_dir)

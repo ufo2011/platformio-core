@@ -14,8 +14,6 @@
 
 # pylint: disable=unused-argument
 
-from __future__ import absolute_import
-
 import os
 import re
 import sys
@@ -26,8 +24,8 @@ from SCons.Script import ARGUMENTS  # pylint: disable=import-error
 from serial import Serial, SerialException
 
 from platformio import exception, fs
-from platformio.device.finder import find_mbed_disk, find_serial_port, is_pattern_port
-from platformio.device.list import list_serial_ports
+from platformio.device.finder import SerialPortFinder, find_mbed_disk, is_pattern_port
+from platformio.device.list.util import list_serial_ports
 from platformio.proc import exec_command
 
 
@@ -109,14 +107,15 @@ def AutodetectUploadPort(*args, **kwargs):
     else:
         try:
             fs.ensure_udev_rules()
-        except exception.InvalidUdevRules as e:
-            sys.stderr.write("\n%s\n\n" % e)
+        except exception.InvalidUdevRules as exc:
+            sys.stderr.write("\n%s\n\n" % exc)
         env.Replace(
-            UPLOAD_PORT=find_serial_port(
-                initial_port=initial_port,
+            UPLOAD_PORT=SerialPortFinder(
                 board_config=env.BoardConfig() if "BOARD" in env else None,
                 upload_protocol=upload_protocol,
-            )
+                prefer_gdb_port="blackmagic" in upload_protocol,
+                verbose=int(ARGUMENTS.get("PIOVERBOSE", 0)),
+            ).find(initial_port)
         )
 
     if env.subst("$UPLOAD_PORT"):
@@ -219,12 +218,11 @@ def CheckUploadSize(_, target, source, env):
     if int(ARGUMENTS.get("PIOVERBOSE", 0)):
         print(output)
 
-    # raise error
-    # if data_max_size and data_size > data_max_size:
-    #     sys.stderr.write(
-    #         "Error: The data size (%d bytes) is greater "
-    #         "than maximum allowed (%s bytes)\n" % (data_size, data_max_size))
-    #     env.Exit(1)
+    if data_max_size and data_size > data_max_size:
+        sys.stderr.write(
+            "Warning! The data size (%d bytes) is greater "
+            "than maximum allowed (%s bytes)\n" % (data_size, data_max_size)
+        )
     if program_size > program_max_size:
         sys.stderr.write(
             "Error: The program size (%d bytes) is greater "

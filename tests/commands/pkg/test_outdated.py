@@ -24,7 +24,7 @@ PROJECT_OUTDATED_CONFIG_TPL = """
 platform = platformio/atmelavr@^2
 framework = arduino
 board = attiny88
-lib_deps = milesburton/DallasTemperature@~3.8.0
+lib_deps = milesburton/DallasTemperature@~3.9.0
 """
 
 PROJECT_UPDATED_CONFIG_TPL = """
@@ -32,7 +32,7 @@ PROJECT_UPDATED_CONFIG_TPL = """
 platform = platformio/atmelavr@<4
 framework = arduino
 board = attiny88
-lib_deps = milesburton/DallasTemperature@^3.8.0
+lib_deps = milesburton/DallasTemperature@^3.9.0
 """
 
 
@@ -51,12 +51,12 @@ def test_project(clirunner, validate_cliresult, isolated_pio_core, tmp_path):
     # validate output
     assert "Checking" in result.output
     assert re.search(
-        r"^atmelavr\s+2\.2\.0\s+3\.\d+\.\d+\s+3\.\d+\.\d+\s+Platform\s+devkit",
+        r"^atmelavr\s+2\.2\.0\s+3\.\d+\.\d+\s+[456789]\.\d+\.\d+\s+Platform\s+devkit",
         result.output,
         re.MULTILINE,
     )
     assert re.search(
-        r"^DallasTemperature\s+3\.8\.1\s+3\.\d+\.\d+\s+3\.\d+\.\d+\s+Library\s+devkit",
+        r"^DallasTemperature\s+3\.\d\.1\s+3\.\d+\.\d+\s+3\.\d+\.\d+\s+Library\s+devkit",
         result.output,
         re.MULTILINE,
     )

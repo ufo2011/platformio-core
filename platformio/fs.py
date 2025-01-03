@@ -24,11 +24,11 @@ import sys
 
 import click
 
-from platformio import exception, proc
+from platformio import exception
 from platformio.compat import IS_WINDOWS
 
 
-class cd(object):
+class cd:
     def __init__(self, new_path):
         self.new_path = new_path
         self.prev_path = os.getcwd()
@@ -50,12 +50,16 @@ def get_source_dir():
     return os.path.dirname(curpath)
 
 
+def get_assets_dir():
+    return os.path.join(get_source_dir(), "assets")
+
+
 def load_json(file_path):
     try:
         with open(file_path, mode="r", encoding="utf8") as f:
             return json.load(f)
-    except ValueError:
-        raise exception.InvalidJSONFile(file_path)
+    except ValueError as exc:
+        raise exception.InvalidJSONFile(file_path) from exc
 
 
 def humanize_file_size(filesize):
@@ -97,6 +101,12 @@ def calculate_folder_size(path):
     return result
 
 
+def get_platformio_udev_rules_path():
+    return os.path.abspath(
+        os.path.join(get_assets_dir(), "system", "99-platformio-udev.rules")
+    )
+
+
 def ensure_udev_rules():
     from platformio.util import get_systype  # pylint: disable=import-outside-toplevel
 
@@ -119,9 +129,7 @@ def ensure_udev_rules():
     if not any(os.path.isfile(p) for p in installed_rules):
         raise exception.MissedUdevRules
 
-    origin_path = os.path.abspath(
-        os.path.join(get_source_dir(), "..", "scripts", "99-platformio-udev.rules")
-    )
+    origin_path = get_platformio_udev_rules_path()
     if not os.path.isfile(origin_path):
         return None
 
@@ -173,7 +181,7 @@ def match_src_files(src_dir, src_filter=None, src_exts=None, followlinks=True):
     result = set()
     # correct fs directory separator
     src_filter = src_filter.replace("/", os.sep).replace("\\", os.sep)
-    for (action, pattern) in re.findall(r"(\+|\-)<([^>]+)>", src_filter):
+    for action, pattern in re.findall(r"(\+|\-)<([^>]+)>", src_filter):
         candidates = _find_candidates(pattern)
         if action == "+":
             result |= candidates
@@ -185,26 +193,7 @@ def match_src_files(src_dir, src_filter=None, src_exts=None, followlinks=True):
 def to_unix_path(path):
     if not IS_WINDOWS or not path:
         return path
-    return re.sub(r"[\\]+", "/", path)
-
-
-def normalize_path(path):
-    path = os.path.abspath(path)
-    if not IS_WINDOWS or not path.startswith("\\\\"):
-        return path
-    try:
-        result = proc.exec_command(["net", "use"])
-        if result["returncode"] != 0:
-            return path
-        share_re = re.compile(r"\s([A-Z]\:)\s+(\\\\[^\s]+)")
-        for line in result["out"].split("\n"):
-            share = share_re.search(line)
-            if not share:
-                continue
-            path = path.replace(share.group(2), share.group(1))
-    except OSError:
-        pass
-    return path
+    return path.replace("\\", "/")
 
 
 def expanduser(path):
@@ -221,17 +210,20 @@ def change_filemtime(path, mtime):
 
 
 def rmtree(path):
-    def _onerror(func, path, __):
+    def _onexc(func, path, _):
         try:
             st_mode = os.stat(path).st_mode
             if st_mode & stat.S_IREAD:
                 os.chmod(path, st_mode | stat.S_IWRITE)
             func(path)
-        except Exception as e:  # pylint: disable=broad-except
+        except Exception as exc:  # pylint: disable=broad-except
             click.secho(
-                "%s \nPlease manually remove the file `%s`" % (str(e), path),
+                "%s \nPlease manually remove the file `%s`" % (str(exc), path),
                 fg="red",
                 err=True,
             )
 
-    return shutil.rmtree(path, onerror=_onerror)
+    # pylint: disable=unexpected-keyword-arg, deprecated-argument
+    if sys.version_info < (3, 12):
+        return shutil.rmtree(path, onerror=_onexc)
+    return shutil.rmtree(path, onexc=_onexc)

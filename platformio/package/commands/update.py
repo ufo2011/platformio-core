@@ -33,7 +33,7 @@ from platformio.project.savedeps import pkg_to_save_spec, save_project_dependenc
     "-d",
     "--project-dir",
     default=os.getcwd,
-    type=click.Path(exists=True, file_okay=False, dir_okay=True, resolve_path=True),
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
 )
 @click.option("-e", "--environment", "environments", multiple=True)
 @click.option("-p", "--platform", "platforms", metavar="SPECIFICATION", multiple=True)
@@ -49,7 +49,7 @@ from platformio.project.savedeps import pkg_to_save_spec, save_project_dependenc
 @click.option(
     "--storage-dir",
     default=None,
-    type=click.Path(exists=True, file_okay=False, dir_okay=True, resolve_path=True),
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
     help="Custom Package Manager storage for global packages",
 )
 @click.option("-s", "--silent", is_flag=True, help="Suppress progress reporting")
@@ -95,9 +95,7 @@ def update_project_dependencies(options):
             if environments and env not in environments:
                 continue
             if not options["silent"]:
-                click.echo(
-                    "Resolving %s environment packages..." % click.style(env, fg="cyan")
-                )
+                click.echo("Resolving %s dependencies..." % click.style(env, fg="cyan"))
             already_up_to_date = not update_project_env_dependencies(env, options)
             if not options["silent"] and already_up_to_date:
                 click.secho("Already up-to-date.", fg="green")

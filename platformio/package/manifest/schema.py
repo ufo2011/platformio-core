@@ -22,13 +22,13 @@ import requests
 import semantic_version
 from marshmallow import Schema, ValidationError, fields, validate, validates
 
-from platformio.clients.http import fetch_remote_content
+from platformio.http import fetch_remote_content
 from platformio.package.exception import ManifestValidationError
 from platformio.util import memoized
 
 
 class BaseSchema(Schema):
-    class Meta(object):  # pylint: disable=no-init
+    class Meta:
         unknown = marshmallow.EXCLUDE  # pylint: disable=no-member
 
     def load_manifest(self, data):
@@ -183,7 +183,7 @@ class ManifestSchema(BaseSchema):
             validate=[
                 validate.Length(min=1, max=50),
                 validate.Regexp(
-                    r"^[a-z\d\-\+\. ]+$", error="Only [a-z0-9-+. ] chars are allowed"
+                    r"^[a-z\d\-_\+\. ]+$", error="Only [a-z0-9+_-. ] chars are allowed"
                 ),
             ]
         )
@@ -232,7 +232,7 @@ class ManifestSchema(BaseSchema):
     )
 
     @validates("version")
-    def validate_version(self, value):  # pylint: disable=no-self-use
+    def validate_version(self, value):
         try:
             value = str(value)
             assert "." in value
@@ -243,17 +243,19 @@ class ManifestSchema(BaseSchema):
                 if "Invalid leading zero" in str(exc):
                     raise exc
             semantic_version.Version.coerce(value)
-        except (AssertionError, ValueError):
+        except (AssertionError, ValueError) as exc:
             raise ValidationError(
                 "Invalid semantic versioning format, see https://semver.org/"
-            )
+            ) from exc
 
     @validates("license")
     def validate_license(self, value):
         try:
             spdx = self.load_spdx_licenses()
-        except requests.exceptions.RequestException:
-            raise ValidationError("Could not load SPDX licenses for validation")
+        except requests.exceptions.RequestException as exc:
+            raise ValidationError(
+                "Could not load SPDX licenses for validation"
+            ) from exc
         known_ids = set(item.get("licenseId") for item in spdx.get("licenses", []))
         if value in known_ids:
             return True
@@ -274,9 +276,9 @@ class ManifestSchema(BaseSchema):
     @staticmethod
     @memoized(expire="1h")
     def load_spdx_licenses():
-        version = "3.17"
+        version = "3.26.0"
         spdx_data_url = (
             "https://raw.githubusercontent.com/spdx/license-list-data/"
-            "v%s/json/licenses.json" % version
+            f"v{version}/json/licenses.json"
         )
         return json.loads(fetch_remote_content(spdx_data_url))

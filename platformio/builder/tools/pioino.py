@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
-
 import atexit
 import glob
 import io
@@ -26,8 +24,7 @@ import click
 from platformio.compat import get_filesystem_encoding, get_locale_encoding
 
 
-class InoToCPPConverter(object):
-
+class InoToCPPConverter:
     PROTOTYPE_RE = re.compile(
         r"""^(
         (?:template\<.*\>\s*)?      # template
@@ -105,7 +102,7 @@ class InoToCPPConverter(object):
         return "\n".join(["#include <Arduino.h>"] + lines) if lines else None
 
     def process(self, contents):
-        out_file = self._main_ino + ".cpp"
+        out_file = re.sub(r"[\"\'\;]+", "", self._main_ino) + ".cpp"
         assert self._gcc_preprocess(contents, out_file)
         contents = self.read_safe_contents(out_file)
         contents = self._join_multiline_strings(contents)
@@ -225,11 +222,15 @@ class InoToCPPConverter(object):
         return "\n".join(result)
 
 
-def ConvertInoToCpp(env):
+def FindInoNodes(env):
     src_dir = glob.escape(env.subst("$PROJECT_SRC_DIR"))
-    ino_nodes = env.Glob(os.path.join(src_dir, "*.ino")) + env.Glob(
+    return env.Glob(os.path.join(src_dir, "*.ino")) + env.Glob(
         os.path.join(src_dir, "*.pde")
     )
+
+
+def ConvertInoToCpp(env):
+    ino_nodes = env.FindInoNodes()
     if not ino_nodes:
         return
     c = InoToCPPConverter(env)
@@ -247,6 +248,7 @@ def _delete_file(path):
 
 
 def generate(env):
+    env.AddMethod(FindInoNodes)
     env.AddMethod(ConvertInoToCpp)
 
 

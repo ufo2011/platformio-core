@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import shutil
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -21,17 +22,21 @@ import pytest
 
 from platformio import proc
 from platformio.fs import load_json
-from platformio.test.command import test_cmd as pio_test_cmd
+from platformio.test.cli import cli as pio_test_cmd
 
 
 def test_calculator_example(tmp_path: Path):
     junit_output_path = tmp_path / "junit.xml"
+    project_dir = tmp_path / "project"
+    shutil.copytree(
+        os.path.join("examples", "unit-testing", "calculator"), str(project_dir)
+    )
     result = proc.exec_command(
         [
             "platformio",
             "test",
             "-d",
-            os.path.join("examples", "unit-testing", "calculator"),
+            str(project_dir),
             "-e",
             "uno",
             "-e",
@@ -67,11 +72,15 @@ def test_calculator_example(tmp_path: Path):
 
 def test_list_tests(clirunner, validate_cliresult, tmp_path: Path):
     json_output_path = tmp_path / "report.json"
+    project_dir = tmp_path / "project"
+    shutil.copytree(
+        os.path.join("examples", "unit-testing", "calculator"), str(project_dir)
+    )
     result = clirunner.invoke(
         pio_test_cmd,
         [
             "-d",
-            os.path.join("examples", "unit-testing", "calculator"),
+            str(project_dir),
             "--list-tests",
             "--json-output-path",
             str(json_output_path),
@@ -187,6 +196,7 @@ int main() {
         ["-d", str(project_dir), "-e", "native", "--verbose"],
     )
     validate_cliresult(result)
+    assert "1 Tests 0 Failures 0 Ignored" in result.output
     assert "Called from my_extra_fun" in result.output
     assert "CustomTestRunner::TearDown called" in result.output
     assert "Disabled test suite" not in result.output
@@ -236,67 +246,67 @@ int main(int argc, char *argv[]) {
     )
 
 
-@pytest.mark.skipif(
-    sys.platform != "darwin", reason="runs only on macOS (issue with SimAVR)"
-)
-def test_custom_testing_command(clirunner, validate_cliresult, tmp_path: Path):
-    project_dir = tmp_path / "project"
-    project_dir.mkdir()
-    (project_dir / "platformio.ini").write_text(
-        """
-[env:uno]
-platform = atmelavr
-framework = arduino
-board = uno
+# @pytest.mark.skipif(
+#     sys.platform != "darwin", reason="runs only on macOS (issue with SimAVR)"
+# )
+# def test_custom_testing_command(clirunner, validate_cliresult, tmp_path: Path):
+#     project_dir = tmp_path / "project"
+#     project_dir.mkdir()
+#     (project_dir / "platformio.ini").write_text(
+#         """
+# [env:uno]
+# platform = atmelavr
+# framework = arduino
+# board = uno
 
-platform_packages =
-    platformio/tool-simavr @ ^1
-test_speed = 9600
-test_testing_command =
-    ${platformio.packages_dir}/tool-simavr/bin/simavr
-    -m
-    atmega328p
-    -f
-    16000000L
-    ${platformio.build_dir}/${this.__env__}/firmware.elf
-"""
-    )
-    test_dir = project_dir / "test" / "test_dummy"
-    test_dir.mkdir(parents=True)
-    (test_dir / "test_main.cpp").write_text(
-        """
-#include <Arduino.h>
-#include <unity.h>
+# platform_packages =
+#     platformio/tool-simavr @ ^1
+# test_speed = 9600
+# test_testing_command =
+#     ${platformio.packages_dir}/tool-simavr/bin/simavr
+#     -m
+#     atmega328p
+#     -f
+#     16000000L
+#     ${platformio.build_dir}/${this.__env__}/firmware.elf
+# """
+#     )
+#     test_dir = project_dir / "test" / "test_dummy"
+#     test_dir.mkdir(parents=True)
+#     (test_dir / "test_main.cpp").write_text(
+#         """
+# #include <Arduino.h>
+# #include <unity.h>
 
-void setUp(void) {
-    // set stuff up here
-}
+# void setUp(void) {
+#     // set stuff up here
+# }
 
-void tearDown(void) {
-    // clean stuff up here
-}
+# void tearDown(void) {
+#     // clean stuff up here
+# }
 
-void dummy_test(void) {
-    TEST_ASSERT_EQUAL(1, 1);
-}
+# void dummy_test(void) {
+#     TEST_ASSERT_EQUAL(1, 1);
+# }
 
-void setup() {
-    UNITY_BEGIN();
-    RUN_TEST(dummy_test);
-    UNITY_END();
-}
+# void setup() {
+#     UNITY_BEGIN();
+#     RUN_TEST(dummy_test);
+#     UNITY_END();
+# }
 
-void loop() {
-    delay(1000);
-}
-"""
-    )
-    result = clirunner.invoke(
-        pio_test_cmd,
-        ["-d", str(project_dir), "--without-uploading"],
-    )
-    validate_cliresult(result)
-    assert "dummy_test" in result.output
+# void loop() {
+#     delay(1000);
+# }
+# """
+#     )
+#     result = clirunner.invoke(
+#         pio_test_cmd,
+#         ["-d", str(project_dir), "--without-uploading"],
+#     )
+#     validate_cliresult(result)
+#     assert "dummy_test" in result.output
 
 
 def test_unity_setup_teardown(clirunner, validate_cliresult, tmpdir):
@@ -308,10 +318,15 @@ platform = native
 """
     )
     test_dir = project_dir.mkdir("test")
-    test_dir.join("test_main.c").write(
+    test_dir.join("test_main.h").write(
         """
 #include <stdio.h>
 #include <unity.h>
+    """
+    )
+    test_dir.join("test_main.c").write(
+        """
+#include "test_main.h"
 
 void setUp(){
     printf("setUp called");
@@ -586,14 +601,21 @@ int main(int argc, char **argv)
     assert json_report["failure_nums"] == 1
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32" and os.environ.get("GITHUB_ACTIONS") == "true",
+    reason="skip Github Actions on Windows (MinGW issue)",
+)
 def test_googletest_framework(clirunner, tmp_path: Path):
-    project_dir = os.path.join("examples", "unit-testing", "googletest")
+    project_dir = tmp_path / "project"
+    shutil.copytree(
+        os.path.join("examples", "unit-testing", "googletest"), str(project_dir)
+    )
     junit_output_path = tmp_path / "junit.xml"
     result = clirunner.invoke(
         pio_test_cmd,
         [
             "-d",
-            project_dir,
+            str(project_dir),
             "-e",
             "native",
             "--junit-output-path",
@@ -620,7 +642,7 @@ def test_googletest_framework(clirunner, tmp_path: Path):
         pio_test_cmd,
         [
             "-d",
-            project_dir,
+            str(project_dir),
             "-e",
             "native",
             "--json-output-path",

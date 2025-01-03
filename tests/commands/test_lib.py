@@ -20,11 +20,11 @@ import os
 import pytest
 import semantic_version
 
-from platformio.clients.registry import RegistryClient
-from platformio.commands.lib.command import cli as cmd_lib
+from platformio.commands.lib import cli as cmd_lib
 from platformio.package.meta import PackageType
 from platformio.package.vcsclient import VCSClientFactory
 from platformio.project.config import ProjectConfig
+from platformio.registry.client import RegistryClient
 
 
 def test_saving_deps(clirunner, validate_cliresult, isolated_pio_core, tmpdir_factory):
@@ -42,7 +42,7 @@ board = devkit
 framework = foo
 lib_deps =
     CustomLib
-    ArduinoJson @ 5.10.1
+    ArduinoJson @ 6.18.5
 """
     )
     result = clirunner.invoke(
@@ -137,11 +137,7 @@ lib_deps =
     # test list
     result = clirunner.invoke(cmd_lib, ["-d", str(project_dir), "list"])
     validate_cliresult(result)
-    assert "Version: 0.8.3+sha." in result.stdout
-    assert (
-        "Source: git+https://github.com/OttoWinter/async-mqtt-client.git#v0.8.3"
-        in result.stdout
-    )
+    assert "AsyncMqttClient-esphome @ 0.8.3+sha.f5aa899" in result.stdout
     result = clirunner.invoke(
         cmd_lib, ["-d", str(project_dir), "list", "--json-output"]
     )
@@ -167,7 +163,7 @@ def test_update(clirunner, validate_cliresult, isolated_pio_core, tmpdir_factory
     storage_dir = tmpdir_factory.mktemp("test-updates")
     result = clirunner.invoke(
         cmd_lib,
-        ["-d", str(storage_dir), "install", "ArduinoJson @ 5.10.1", "Blynk @ ~0.5.0"],
+        ["-d", str(storage_dir), "install", "ArduinoJson @ 6.18.5", "Blynk @ ~1.2"],
     )
     validate_cliresult(result)
     result = clirunner.invoke(
@@ -177,17 +173,17 @@ def test_update(clirunner, validate_cliresult, isolated_pio_core, tmpdir_factory
     outdated = json.loads(result.stdout)
     assert len(outdated) == 2
     # ArduinoJson
-    assert outdated[0]["version"] == "5.10.1"
+    assert outdated[0]["version"] == "6.18.5"
     assert outdated[0]["versionWanted"] is None
     assert semantic_version.Version(
         outdated[0]["versionLatest"]
-    ) > semantic_version.Version("6.16.0")
+    ) > semantic_version.Version("6.18.5")
     # Blynk
-    assert outdated[1]["version"] == "0.5.4"
+    assert outdated[1]["version"] == "1.2.0"
     assert outdated[1]["versionWanted"] is None
     assert semantic_version.Version(
         outdated[1]["versionLatest"]
-    ) > semantic_version.Version("0.6.0")
+    ) > semantic_version.Version("1.2.0")
 
     # check with spec
     result = clirunner.invoke(
@@ -198,19 +194,19 @@ def test_update(clirunner, validate_cliresult, isolated_pio_core, tmpdir_factory
             "update",
             "--dry-run",
             "--json-output",
-            "ArduinoJson @ ^5",
+            "ArduinoJson @ ^6",
         ],
     )
     validate_cliresult(result)
     outdated = json.loads(result.stdout)
-    assert outdated[0]["version"] == "5.10.1"
-    assert outdated[0]["versionWanted"] == "5.13.4"
+    assert outdated[0]["version"] == "6.18.5"
+    assert outdated[0]["versionWanted"] == "6.21.5"
     assert semantic_version.Version(
         outdated[0]["versionLatest"]
     ) > semantic_version.Version("6.16.0")
     # update with spec
     result = clirunner.invoke(
-        cmd_lib, ["-d", str(storage_dir), "update", "--silent", "ArduinoJson @ ^5.10.1"]
+        cmd_lib, ["-d", str(storage_dir), "update", "--silent", "ArduinoJson @ ^6.18.5"]
     )
     validate_cliresult(result)
     result = clirunner.invoke(
@@ -219,12 +215,12 @@ def test_update(clirunner, validate_cliresult, isolated_pio_core, tmpdir_factory
     validate_cliresult(result)
     items = json.loads(result.stdout)
     assert len(items) == 2
-    assert items[0]["version"] == "5.13.4"
-    assert items[1]["version"] == "0.5.4"
+    assert items[0]["version"] == "6.21.5"
+    assert items[1]["version"] == "1.2.0"
 
     # Check incompatible
     result = clirunner.invoke(
-        cmd_lib, ["-d", str(storage_dir), "update", "--dry-run", "ArduinoJson @ ^5"]
+        cmd_lib, ["-d", str(storage_dir), "update", "--dry-run", "ArduinoJson @ ^6"]
     )
     with pytest.raises(
         AssertionError,
@@ -232,7 +228,7 @@ def test_update(clirunner, validate_cliresult, isolated_pio_core, tmpdir_factory
     ):
         validate_cliresult(result)
     result = clirunner.invoke(
-        cmd_lib, ["-d", str(storage_dir), "update", "ArduinoJson @ ^5"]
+        cmd_lib, ["-d", str(storage_dir), "update", "ArduinoJson @ ^6"]
     )
     validate_cliresult(result)
-    assert "ArduinoJson@5.13.4 is already up-to-date" in result.stdout
+    assert "ArduinoJson@6.21.5 is already up-to-date" in result.stdout

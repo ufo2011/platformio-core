@@ -12,26 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
-
 import glob
 import os
 
 import SCons.Defaults  # pylint: disable=import-error
 import SCons.Subst  # pylint: disable=import-error
+from SCons.Script import COMMAND_LINE_TARGETS  # pylint: disable=import-error
 
 from platformio.proc import exec_command, where_is_program
+
+
+def IsIntegrationDump(_):
+    return set(["__idedata", "idedata"]) & set(COMMAND_LINE_TARGETS)
 
 
 def DumpIntegrationIncludes(env):
     result = dict(build=[], compatlib=[], toolchain=[])
 
-    result["build"].extend(
-        [
-            env.subst("$PROJECT_INCLUDE_DIR"),
-            env.subst("$PROJECT_SRC_DIR"),
-        ]
-    )
+    # `env`(project) CPPPATH
     result["build"].extend(
         [os.path.abspath(env.subst(item)) for item in env.get("CPPPATH", [])]
     )
@@ -60,7 +58,7 @@ def DumpIntegrationIncludes(env):
     return result
 
 
-def _get_gcc_defines(env):
+def get_gcc_defines(env):
     items = []
     try:
         sysenv = os.environ.copy()
@@ -83,13 +81,13 @@ def _get_gcc_defines(env):
     return items
 
 
-def _dump_defines(env):
+def dump_defines(env):
     defines = []
     # global symbols
     for item in SCons.Defaults.processDefines(env.get("CPPDEFINES", [])):
         item = item.strip()
         if item:
-            defines.append(env.subst(item).replace("\\", ""))
+            defines.append(env.subst(item).replace('\\"', '"'))
 
     # special symbol for Atmel AVR MCU
     if env["PIOPLATFORM"] == "atmelavr":
@@ -108,12 +106,12 @@ def _dump_defines(env):
 
     # built-in GCC marcos
     # if env.GetCompilerType() == "gcc":
-    #     defines.extend(_get_gcc_defines(env))
+    #     defines.extend(get_gcc_defines(env))
 
     return defines
 
 
-def _get_svd_path(env):
+def dump_svd_path(env):
     svd_path = env.GetProjectOption("debug_svd_path")
     if svd_path:
         return os.path.abspath(svd_path)
@@ -135,54 +133,45 @@ def _get_svd_path(env):
     return None
 
 
-def _subst_cmd(env, cmd):
-    args = env.subst_list(cmd, SCons.Subst.SUBST_CMD)[0]
-    return " ".join([SCons.Subst.quote_spaces(arg) for arg in args])
+def _split_flags_string(env, s):
+    args = env.subst_list(s, SCons.Subst.SUBST_CMD)[0]
+    return [str(arg) for arg in args]
 
 
-def DumpIntegrationData(env, globalenv):
-    """env here is `projenv`"""
-
+def DumpIntegrationData(*args):
+    projenv, globalenv = args[0:2]  # pylint: disable=unbalanced-tuple-unpacking
     data = {
-        "env_name": env["PIOENV"],
-        "libsource_dirs": [env.subst(item) for item in env.GetLibSourceDirs()],
-        "defines": _dump_defines(env),
-        "includes": env.DumpIntegrationIncludes(),
-        "cc_path": where_is_program(env.subst("$CC"), env.subst("${ENV['PATH']}")),
-        "cxx_path": where_is_program(env.subst("$CXX"), env.subst("${ENV['PATH']}")),
-        "gdb_path": where_is_program(env.subst("$GDB"), env.subst("${ENV['PATH']}")),
-        "prog_path": env.subst("$PROG_PATH"),
-        "svd_path": _get_svd_path(env),
-        "compiler_type": env.GetCompilerType(),
+        "build_type": globalenv.GetBuildType(),
+        "env_name": globalenv["PIOENV"],
+        "libsource_dirs": [
+            globalenv.subst(item) for item in globalenv.GetLibSourceDirs()
+        ],
+        "defines": dump_defines(projenv),
+        "includes": projenv.DumpIntegrationIncludes(),
+        "cc_flags": _split_flags_string(projenv, "$CFLAGS $CCFLAGS $CPPFLAGS"),
+        "cxx_flags": _split_flags_string(projenv, "$CXXFLAGS $CCFLAGS $CPPFLAGS"),
+        "cc_path": where_is_program(
+            globalenv.subst("$CC"), globalenv.subst("${ENV['PATH']}")
+        ),
+        "cxx_path": where_is_program(
+            globalenv.subst("$CXX"), globalenv.subst("${ENV['PATH']}")
+        ),
+        "gdb_path": where_is_program(
+            globalenv.subst("$GDB"), globalenv.subst("${ENV['PATH']}")
+        ),
+        "prog_path": globalenv.subst("$PROGPATH"),
+        "svd_path": dump_svd_path(globalenv),
+        "compiler_type": globalenv.GetCompilerType(),
         "targets": globalenv.DumpTargets(),
         "extra": dict(
             flash_images=[
-                {"offset": item[0], "path": env.subst(item[1])}
-                for item in env.get("FLASH_EXTRA_IMAGES", [])
+                {"offset": item[0], "path": globalenv.subst(item[1])}
+                for item in globalenv.get("FLASH_EXTRA_IMAGES", [])
             ]
         ),
     }
-    data["extra"].update(env.get("IDE_EXTRA_DATA", {}))
-
-    env_ = env.Clone()
-    # https://github.com/platformio/platformio-atom-ide/issues/34
-    _new_defines = []
-    for item in SCons.Defaults.processDefines(env_.get("CPPDEFINES", [])):
-        item = item.replace('\\"', '"')
-        if " " in item:
-            _new_defines.append(item.replace(" ", "\\\\ "))
-        else:
-            _new_defines.append(item)
-    env_.Replace(CPPDEFINES=_new_defines)
-
-    # export C/C++ build flags
-    data.update(
-        {
-            "cc_flags": _subst_cmd(env_, "$CFLAGS $CCFLAGS $CPPFLAGS"),
-            "cxx_flags": _subst_cmd(env_, "$CXXFLAGS $CCFLAGS $CPPFLAGS"),
-        }
-    )
-
+    for key in ("IDE_EXTRA_DATA", "INTEGRATION_EXTRA_DATA"):
+        data["extra"].update(globalenv.get(key, {}))
     return data
 
 
@@ -191,6 +180,9 @@ def exists(_):
 
 
 def generate(env):
+    env["IDE_EXTRA_DATA"] = {}  # legacy support
+    env["INTEGRATION_EXTRA_DATA"] = {}
+    env.AddMethod(IsIntegrationDump)
     env.AddMethod(DumpIntegrationIncludes)
     env.AddMethod(DumpIntegrationData)
     return env

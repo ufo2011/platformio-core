@@ -19,6 +19,7 @@ import os
 import pytest
 
 from platformio import fs
+from platformio.dependencies import get_core_dependencies
 from platformio.package.commands.install import package_install_cmd
 from platformio.package.manager.library import LibraryPackageManager
 from platformio.package.manager.platform import PlatformPackageManager
@@ -29,7 +30,9 @@ from platformio.project.config import ProjectConfig
 PROJECT_CONFIG_TPL = """
 [env]
 platform = platformio/atmelavr@^3.4.0
-lib_deps = milesburton/DallasTemperature@^3.9.1
+lib_deps =
+    milesburton/DallasTemperature@^3.9.1
+    https://github.com/esphome/ESPAsyncWebServer/archive/refs/tags/v2.1.0.zip
 
 [env:baremetal]
 board = uno
@@ -48,7 +51,11 @@ def pkgs_to_specs(pkgs):
 
 
 def test_global_packages(
-    clirunner, validate_cliresult, func_isolated_pio_core, tmp_path
+    clirunner,
+    validate_cliresult,
+    func_isolated_pio_core,
+    get_pkg_latest_version,
+    tmp_path,
 ):
     # libraries
     result = clirunner.invoke(
@@ -79,7 +86,7 @@ def test_global_packages(
     assert pkgs_to_specs(LibraryPackageManager().get_installed()) == [
         PackageSpec("ArduinoJson@5.13.4"),
         PackageSpec("DallasTemperature@3.9.0+sha.964939d"),
-        PackageSpec("OneWire@2.3.6"),
+        PackageSpec("OneWire@%s" % get_pkg_latest_version("paulstoffregen/OneWire")),
     ]
     # custom storage
     storage_dir = tmp_path / "custom_lib_storage"
@@ -120,7 +127,9 @@ def test_global_packages(
     ]
 
 
-def test_skip_dependencies(clirunner, validate_cliresult, isolated_pio_core, tmp_path):
+def test_skip_dependencies(
+    clirunner, validate_cliresult, isolated_pio_core, get_pkg_latest_version, tmp_path
+):
     project_dir = tmp_path / "project"
     project_dir.mkdir()
     (project_dir / "platformio.ini").write_text(PROJECT_CONFIG_TPL)
@@ -134,12 +143,18 @@ def test_skip_dependencies(clirunner, validate_cliresult, isolated_pio_core, tmp
             os.path.join(ProjectConfig().get("platformio", "libdeps_dir"), "devkit")
         ).get_installed()
         assert pkgs_to_specs(installed_lib_pkgs) == [
-            PackageSpec("DallasTemperature@3.9.1")
+            PackageSpec(
+                "DallasTemperature@%s"
+                % get_pkg_latest_version("milesburton/DallasTemperature")
+            ),
+            PackageSpec("ESPAsyncWebServer-esphome@2.1.0"),
         ]
-        assert len(ToolPackageManager().get_installed()) == 0
+        assert len(ToolPackageManager().get_installed()) == 1  # SCons
 
 
-def test_baremetal_project(clirunner, validate_cliresult, isolated_pio_core, tmp_path):
+def test_baremetal_project(
+    clirunner, validate_cliresult, isolated_pio_core, get_pkg_latest_version, tmp_path
+):
     project_dir = tmp_path / "project"
     project_dir.mkdir()
     (project_dir / "platformio.ini").write_text(PROJECT_CONFIG_TPL)
@@ -153,15 +168,24 @@ def test_baremetal_project(clirunner, validate_cliresult, isolated_pio_core, tmp
             os.path.join(ProjectConfig().get("platformio", "libdeps_dir"), "baremetal")
         ).get_installed()
         assert pkgs_to_specs(installed_lib_pkgs) == [
-            PackageSpec("DallasTemperature@3.9.1"),
-            PackageSpec("OneWire@2.3.6"),
+            PackageSpec(
+                "DallasTemperature@%s"
+                % get_pkg_latest_version("milesburton/DallasTemperature")
+            ),
+            PackageSpec("ESPAsyncWebServer-esphome@2.1.0"),
+            PackageSpec(
+                "OneWire@%s" % get_pkg_latest_version("paulstoffregen/OneWire")
+            ),
         ]
         assert pkgs_to_specs(ToolPackageManager().get_installed()) == [
+            PackageSpec("tool-scons@%s" % get_core_dependencies()["tool-scons"][1:]),
             PackageSpec("toolchain-atmelavr@1.70300.191015"),
         ]
 
 
-def test_project(clirunner, validate_cliresult, isolated_pio_core, tmp_path):
+def test_project(
+    clirunner, validate_cliresult, isolated_pio_core, get_pkg_latest_version, tmp_path
+):
     project_dir = tmp_path / "project"
     project_dir.mkdir()
     (project_dir / "platformio.ini").write_text(PROJECT_CONFIG_TPL)
@@ -176,15 +200,23 @@ def test_project(clirunner, validate_cliresult, isolated_pio_core, tmp_path):
             os.path.join(config.get("platformio", "libdeps_dir"), "devkit")
         )
         assert pkgs_to_specs(lm.get_installed()) == [
-            PackageSpec("DallasTemperature@3.9.1"),
-            PackageSpec("OneWire@2.3.6"),
+            PackageSpec(
+                "DallasTemperature@%s"
+                % get_pkg_latest_version("milesburton/DallasTemperature")
+            ),
+            PackageSpec("ESPAsyncWebServer-esphome@2.1.0"),
+            PackageSpec(
+                "OneWire@%s" % get_pkg_latest_version("paulstoffregen/OneWire")
+            ),
         ]
         assert pkgs_to_specs(ToolPackageManager().get_installed()) == [
             PackageSpec("framework-arduino-avr-attiny@1.5.2"),
+            PackageSpec("tool-scons@%s" % get_core_dependencies()["tool-scons"][1:]),
             PackageSpec("toolchain-atmelavr@1.70300.191015"),
         ]
         assert config.get("env:devkit", "lib_deps") == [
-            "milesburton/DallasTemperature@^3.9.1"
+            "milesburton/DallasTemperature@^3.9.1",
+            "https://github.com/esphome/ESPAsyncWebServer/archive/refs/tags/v2.1.0.zip",
         ]
 
     # test "Already up-to-date"
@@ -196,7 +228,9 @@ def test_project(clirunner, validate_cliresult, isolated_pio_core, tmp_path):
     assert "Already up-to-date" in result.output
 
 
-def test_private_lib_deps(clirunner, validate_cliresult, isolated_pio_core, tmp_path):
+def test_private_lib_deps(
+    clirunner, validate_cliresult, isolated_pio_core, get_pkg_latest_version, tmp_path
+):
     project_dir = tmp_path / "project"
     private_lib_dir = project_dir / "lib" / "private"
     private_lib_dir.mkdir(parents=True)
@@ -241,7 +275,9 @@ platform = native
             config.get("platformio", "lib_dir")
         ).get_installed()
         assert pkgs_to_specs(installed_private_pkgs) == [
-            PackageSpec("OneWire@2.3.6"),
+            PackageSpec(
+                "OneWire@%s" % get_pkg_latest_version("paulstoffregen/OneWire")
+            ),
             PackageSpec("My Private Lib@1.0.0"),
         ]
         installed_env_pkgs = LibraryPackageManager(
@@ -249,12 +285,15 @@ platform = native
         ).get_installed()
         assert pkgs_to_specs(installed_env_pkgs) == [
             PackageSpec("ArduinoJson@5.13.4"),
-            PackageSpec("DallasTemperature@3.9.1"),
+            PackageSpec(
+                "DallasTemperature@%s"
+                % get_pkg_latest_version("milesburton/DallasTemperature")
+            ),
         ]
 
 
 def test_remove_project_unused_libdeps(
-    clirunner, validate_cliresult, isolated_pio_core, tmp_path
+    clirunner, validate_cliresult, isolated_pio_core, get_pkg_latest_version, tmp_path
 ):
     project_dir = tmp_path / "project"
     project_dir.mkdir()
@@ -269,8 +308,14 @@ def test_remove_project_unused_libdeps(
         storage_dir = os.path.join(config.get("platformio", "libdeps_dir"), "baremetal")
         lm = LibraryPackageManager(storage_dir)
         assert pkgs_to_specs(lm.get_installed()) == [
-            PackageSpec("DallasTemperature@3.9.1"),
-            PackageSpec("OneWire@2.3.6"),
+            PackageSpec(
+                "DallasTemperature@%s"
+                % get_pkg_latest_version("milesburton/DallasTemperature")
+            ),
+            PackageSpec("ESPAsyncWebServer-esphome@2.1.0"),
+            PackageSpec(
+                "OneWire@%s" % get_pkg_latest_version("paulstoffregen/OneWire")
+            ),
         ]
 
         # add new deps
@@ -285,8 +330,14 @@ def test_remove_project_unused_libdeps(
         lm = LibraryPackageManager(storage_dir)
         assert pkgs_to_specs(lm.get_installed()) == [
             PackageSpec("ArduinoJson@5.13.4"),
-            PackageSpec("DallasTemperature@3.9.1"),
-            PackageSpec("OneWire@2.3.6"),
+            PackageSpec(
+                "DallasTemperature@%s"
+                % get_pkg_latest_version("milesburton/DallasTemperature")
+            ),
+            PackageSpec("ESPAsyncWebServer-esphome@2.1.0"),
+            PackageSpec(
+                "OneWire@%s" % get_pkg_latest_version("paulstoffregen/OneWire")
+            ),
         ]
 
         # manually remove from cofiguration file
@@ -395,7 +446,7 @@ def test_custom_project_libraries(
         )
         assert pkgs_to_specs(lm.get_installed()) == [
             PackageSpec("ArduinoJson@5.13.4"),
-            PackageSpec("Nanopb@0.4.6+3"),
+            PackageSpec("Nanopb@0.4.91"),
         ]
         assert config.get("env:devkit", "lib_deps") == [
             "bblanchon/ArduinoJson@^5",
@@ -421,7 +472,7 @@ def test_custom_project_tools(
     project_dir = tmp_path / "project"
     project_dir.mkdir()
     (project_dir / "platformio.ini").write_text(PROJECT_CONFIG_TPL)
-    spec = "platformio/tool-openocd"
+    spec = "platformio/tool-openocd @ ^2"
     result = clirunner.invoke(
         package_install_cmd,
         ["-d", str(project_dir), "-e", "devkit", "-t", spec],
@@ -455,7 +506,7 @@ def test_custom_project_tools(
 
         # check saved deps
         assert config.get("env:devkit", "platform_packages") == [
-            "platformio/tool-openocd@^2.1100.211028",
+            "platformio/tool-openocd@^2",
         ]
 
         # install tool without saving to config
@@ -470,7 +521,7 @@ def test_custom_project_tools(
             PackageSpec("tool-openocd@2.1100.211028"),
         ]
         assert config.get("env:devkit", "platform_packages") == [
-            "platformio/tool-openocd@^2.1100.211028",
+            "platformio/tool-openocd@^2",
         ]
 
         # unknown tool

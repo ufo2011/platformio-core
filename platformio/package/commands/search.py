@@ -17,7 +17,7 @@ import math
 import click
 
 from platformio import util
-from platformio.clients.registry import RegistryClient
+from platformio.registry.client import RegistryClient
 
 
 @click.command("search", short_help="Search for packages")
@@ -65,10 +65,12 @@ def print_search_item(item):
     click.echo(
         "%s • %s • Published on %s"
         % (
-            item["type"].capitalize()
-            if item["tier"] == "community"
-            else click.style(
-                ("%s %s" % (item["tier"], item["type"])).title(), bold=True
+            (
+                item["type"].capitalize()
+                if item["tier"] == "community"
+                else click.style(
+                    ("%s %s" % (item["tier"], item["type"])).title(), bold=True
+                )
             ),
             item["version"]["name"],
             util.parse_datetime(item["version"]["released_at"]).strftime("%c"),

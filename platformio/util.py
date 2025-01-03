@@ -12,29 +12,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
-
+import datetime
 import functools
 import math
+import os
 import platform
 import re
 import shutil
 import time
-from datetime import datetime
 
 import click
 
 from platformio import __version__
 
 # pylint: disable=unused-import
-from platformio.device.list import list_serial_ports as get_serial_ports
+from platformio.device.list.util import list_serial_ports as get_serial_ports
 from platformio.fs import cd, load_json
 from platformio.proc import exec_command
 
 # pylint: enable=unused-import
 
+# also export list_serial_ports as get_serialports to be
+# backward compatibility with arduinosam versions 3.9.0 to 3.5.0 (and possibly others)
+get_serialports = get_serial_ports
 
-class memoized(object):
+
+class memoized:
     def __init__(self, expire=0):
         expire = str(expire)
         if expire.isdigit():
@@ -61,7 +64,7 @@ class memoized(object):
         self.cache.clear()
 
 
-class throttle(object):
+class throttle:
     def __init__(self, threshhold):
         self.threshhold = threshhold  # milliseconds
         self.last = 0
@@ -78,6 +81,49 @@ class throttle(object):
         return wrapper
 
 
+# Retry: Begin
+
+
+class RetryException(Exception):
+    pass
+
+
+class RetryNextException(RetryException):
+    pass
+
+
+class RetryStopException(RetryException):
+    pass
+
+
+class retry:
+    RetryNextException = RetryNextException
+    RetryStopException = RetryStopException
+
+    def __init__(self, timeout=0, step=0.25):
+        self.timeout = timeout
+        self.step = step
+
+    def __call__(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            elapsed = 0
+            while True:
+                try:
+                    return func(*args, **kwargs)
+                except self.RetryNextException:
+                    pass
+                if elapsed >= self.timeout:
+                    raise self.RetryStopException()
+                elapsed += self.step
+                time.sleep(self.step)
+
+        return wrapper
+
+
+# Retry: End
+
+
 def singleton(cls):
     """From PEP-318 http://www.python.org/dev/peps/pep-0318/#examples"""
     _instances = {}
@@ -91,11 +137,21 @@ def singleton(cls):
 
 
 def get_systype():
-    type_ = platform.system().lower()
+    # allow manual override, eg. for
+    # windows on arm64 systems with emulated x86
+    if "PLATFORMIO_SYSTEM_TYPE" in os.environ:
+        return os.environ.get("PLATFORMIO_SYSTEM_TYPE")
+
+    system = platform.system().lower()
     arch = platform.machine().lower()
-    if type_ == "windows" and "x86" in arch:
-        arch = "amd64" if "64" in arch else "x86"
-    return "%s_%s" % (type_, arch) if arch else type_
+    if system == "windows":
+        if not arch:  # issue #4353
+            arch = "x86_" + platform.architecture()[0]
+        if "x86" in arch:
+            arch = "amd64" if "64" in arch else "x86"
+    if arch == "aarch64" and platform.architecture()[0] == "32bit":
+        arch = "armv7l"
+    return "%s_%s" % (system, arch) if arch else system
 
 
 def pioversion_to_intstr():
@@ -120,9 +176,8 @@ def items_in_list(needle, haystack):
 
 
 def parse_datetime(datestr):
-    if "T" in datestr and "Z" in datestr:
-        return datetime.strptime(datestr, "%Y-%m-%dT%H:%M:%SZ")
-    return datetime.strptime(datestr)
+    assert "T" in datestr and "Z" in datestr
+    return datetime.datetime.strptime(datestr, "%Y-%m-%dT%H:%M:%SZ")
 
 
 def merge_dicts(d1, d2, path=None):
@@ -137,7 +192,7 @@ def merge_dicts(d1, d2, path=None):
 
 
 def print_labeled_bar(label, is_error=False, fg=None, sep="="):
-    terminal_width, _ = shutil.get_terminal_size()
+    terminal_width = shutil.get_terminal_size().columns
     width = len(click.unstyle(label))
     half_line = sep * int((terminal_width - width - 2) / 2)
     click.secho("%s %s %s" % (half_line, label, half_line), fg=fg, err=is_error)
@@ -156,4 +211,5 @@ def humanize_duration_time(duration):
 
 
 def strip_ansi_codes(text):
-    return re.sub(r"\x1B\[\d+(;\d+){0,2}m", "", text)
+    # pylint: disable=protected-access
+    return click._compat.strip_ansi(text)

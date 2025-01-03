@@ -18,13 +18,14 @@ import os
 from platformio import fs, proc, util
 from platformio.compat import string_types
 from platformio.debug.exception import DebugInvalidOptionsError
-from platformio.debug.helpers import reveal_debug_port
 from platformio.project.config import ProjectConfig
 from platformio.project.helpers import load_build_metadata
 from platformio.project.options import ProjectOptions
 
 
 class DebugConfigBase:  # pylint: disable=too-many-instance-attributes
+    DEFAULT_PORT = None
+
     def __init__(self, platform, project_config, env_name):
         self.platform = platform
         self.project_config = project_config
@@ -119,11 +120,11 @@ class DebugConfigBase:  # pylint: disable=too-many-instance-attributes
 
     @property
     def port(self):
-        return reveal_debug_port(
-            self.env_options.get("debug_port", self.tool_settings.get("port"))
-            or self._port,
-            self.tool_name,
-            self.tool_settings,
+        return (
+            self._port
+            or self.env_options.get("debug_port")
+            or self.tool_settings.get("port")
+            or self.DEFAULT_PORT
         )
 
     @port.setter
@@ -147,10 +148,12 @@ class DebugConfigBase:  # pylint: disable=too-many-instance-attributes
         )
 
     def _load_build_data(self):
-        data = load_build_metadata(os.getcwd(), self.env_name, cache=True)
-        if data:
-            return data
-        raise DebugInvalidOptionsError("Could not load a build configuration")
+        data = load_build_metadata(
+            os.getcwd(), self.env_name, cache=True, build_type="debug"
+        )
+        if not data:
+            raise DebugInvalidOptionsError("Could not load a build configuration")
+        return data
 
     def _configure_server(self):
         # user disabled server in platformio.ini
@@ -193,9 +196,11 @@ class DebugConfigBase:  # pylint: disable=too-many-instance-attributes
                     cwd=server_package_dir if server_package else None,
                     executable=result.get("executable"),
                     arguments=[
-                        a.replace("$PACKAGE_DIR", server_package_dir)
-                        if server_package_dir
-                        else a
+                        (
+                            a.replace("$PACKAGE_DIR", server_package_dir)
+                            if server_package_dir
+                            else a
+                        )
                         for a in result.get("arguments", [])
                     ],
                 )
@@ -205,8 +210,8 @@ class DebugConfigBase:  # pylint: disable=too-many-instance-attributes
     def get_init_script(self, debugger):
         try:
             return getattr(self, "%s_INIT_SCRIPT" % debugger.upper())
-        except AttributeError:
-            raise NotImplementedError
+        except AttributeError as exc:
+            raise NotImplementedError from exc
 
     def reveal_patterns(self, source, recursive=True):
         program_path = self.program_path or ""

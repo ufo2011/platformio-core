@@ -16,7 +16,7 @@ from platformio.debug.config.base import DebugConfigBase
 
 
 class JlinkDebugConfig(DebugConfigBase):
-
+    DEFAULT_PORT = ":2331"
     GDB_INIT_SCRIPT = """
 define pio_reset_halt_target
     monitor reset
@@ -36,10 +36,6 @@ pio_reset_halt_target
 $LOAD_CMDS
 $INIT_BREAK
 """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.port = ":2331"
 
     @property
     def server_ready_pattern(self):

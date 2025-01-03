@@ -16,7 +16,7 @@ from platformio.debug.config.base import DebugConfigBase
 
 
 class RenodeDebugConfig(DebugConfigBase):
-
+    DEFAULT_PORT = ":3333"
     GDB_INIT_SCRIPT = """
 define pio_reset_halt_target
     monitor machine Reset
@@ -33,10 +33,6 @@ $LOAD_CMDS
 $INIT_BREAK
 monitor start
 """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.port = ":3333"
 
     @property
     def server_ready_pattern(self):

@@ -22,7 +22,7 @@ sys.path.append("..")
 
 import click  # noqa: E402
 
-from platformio import fs, util  # noqa: E402
+from platformio import fs  # noqa: E402
 from platformio.package.manager.platform import PlatformPackageManager  # noqa: E402
 from platformio.platform.factory import PlatformFactory  # noqa: E402
 
@@ -38,6 +38,33 @@ RST_COPYRIGHT = """..  Copyright (c) 2014-present PlatformIO <contact@platformio
     See the License for the specific language governing permissions and
     limitations under the License.
 """
+
+SKIP_DEBUG_TOOLS = ["esp-bridge", "esp-builtin", "dfu"]
+
+STATIC_FRAMEWORK_DATA = {
+    "arduino": {
+        "title": "Arduino",
+        "description": (
+            "Arduino Wiring-based Framework allows writing cross-platform software "
+            "to control devices attached to a wide range of Arduino boards to "
+            "create all kinds of creative coding, interactive objects, spaces "
+            "or physical experiences."
+        ),
+    },
+    "cmsis": {
+        "title": "CMSIS",
+        "description": (
+            "Vendor-independent hardware abstraction layer for the Cortex-M processor series"
+        ),
+    },
+    "freertos": {
+        "title": "FreeRTOS",
+        "description": (
+            "FreeRTOS is a real-time operating system kernel for embedded devices "
+            "that has been ported to 40 microcontroller platforms."
+        ),
+    },
+}
 
 DOCS_ROOT_DIR = os.path.realpath(
     os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "docs")
@@ -90,16 +117,29 @@ def install_platforms():
 @functools.cache
 def get_frameworks():
     items = {}
-    for pkg in PlatformPackageManager().get_installed():
-        p = PlatformFactory.new(pkg)
+    for platform in PlatformPackageManager().get_installed():
+        p = PlatformFactory.new(platform)
         for name, options in (p.frameworks or {}).items():
-            if name in items or not set(options.keys()).issuperset(
-                set(["title", "description"])
-            ):
+            if name in items:
                 continue
-            items[name] = dict(
-                name=name, title=options["title"], description=options["description"]
-            )
+            if name in STATIC_FRAMEWORK_DATA:
+                items[name] = dict(
+                    name=name,
+                    title=STATIC_FRAMEWORK_DATA[name]["title"],
+                    description=STATIC_FRAMEWORK_DATA[name]["description"],
+                )
+                continue
+            title = options.get("title") or name.title()
+            description = options.get("description")
+            if "package" in options:
+                regdata = REGCLIENT.get_package(
+                    "tool",
+                    p.packages[options["package"]].get("owner", "platformio"),
+                    options["package"],
+                )
+                title = regdata["title"] or title
+                description = regdata["description"]
+            items[name] = dict(name=name, title=title, description=description)
     return sorted(items.values(), key=lambda item: item["name"])
 
 
@@ -127,7 +167,7 @@ def generate_boards_table(boards, skip_columns=None):
     )
 
     # add header
-    for (name, template) in columns:
+    for name, template in columns:
         if skip_columns and name in skip_columns:
             continue
         prefix = "    * - " if name == "Name" else "      - "
@@ -154,7 +194,7 @@ def generate_boards_table(boards, skip_columns=None):
             rom=fs.humanize_file_size(data["rom"]),
         )
 
-        for (name, template) in columns:
+        for name, template in columns:
             if skip_columns and name in skip_columns:
                 continue
             prefix = "    * - " if name == "Name" else "      - "
@@ -317,6 +357,8 @@ Packages
       - Description"""
     )
     for name, options in dict(sorted(packages.items())).items():
+        if name == "toolchain-gccarmnoneeab":  # aceinna typo fix
+            name = name + "i"
         package = REGCLIENT.get_package(
             "tool", options.get("owner", "platformio"), name
         )
@@ -338,7 +380,7 @@ Packages
 .. warning::
     **Linux Users**:
 
-        * Install "udev" rules :ref:`faq_udev_rules`
+        * Install "udev" rules :ref:`platformio_udev_rules`
         * Raspberry Pi users, please read this article
           `Enable serial port on Raspberry Pi <https://hallard.me/enable-serial-port-on-raspberry-pi/>`__.
 """
@@ -371,6 +413,7 @@ Packages
 
 
 def generate_platform(pkg, rst_dir):
+    owner = pkg.metadata.spec.owner
     name = pkg.metadata.name
     print("Processing platform: %s" % name)
 
@@ -386,9 +429,9 @@ def generate_platform(pkg, rst_dir):
     p = PlatformFactory.new(name)
     assert p.repository_url.endswith(".git")
     github_url = p.repository_url[:-4]
-    registry_url = reg_package_url("platform", pkg.metadata.spec.owner, name)
+    registry_url = reg_package_url("platform", owner, name)
 
-    lines.append(".. _platform_%s:" % p.name)
+    lines.append(".. _platform_%s:" % name)
     lines.append("")
 
     lines.append(p.title)
@@ -397,7 +440,7 @@ def generate_platform(pkg, rst_dir):
     lines.append(":Registry:")
     lines.append("  `%s <%s>`__" % (registry_url, registry_url))
     lines.append(":Configuration:")
-    lines.append("  :ref:`projectconf_env_platform` = ``%s``" % p.name)
+    lines.append("  :ref:`projectconf_env_platform` = ``%s/%s``" % (owner, name))
     lines.append("")
     lines.append(p.description)
     lines.append(
@@ -471,16 +514,15 @@ Stable
 
 .. code-block:: ini
 
-    ; Latest stable version
+    ; Latest stable version, NOT recommended
+    ; Pin the version as shown below
     [env:latest_stable]
     platform = {name}
-    board = ...
-
-    ; Custom stable version
+    {board}
+    ; Specific version
     [env:custom_stable]
     platform = {name}@x.y.z
-    board = ...
-
+    {board}
 Upstream
 ~~~~~~~~
 
@@ -488,9 +530,11 @@ Upstream
 
     [env:upstream_develop]
     platform = {github_url}.git
-    board = ...
-""".format(
-            name=p.name, title=p.title, github_url=github_url
+    {board}""".format(
+            name=p.name,
+            title=p.title,
+            github_url=github_url,
+            board="board = ...\n" if p.is_embedded() else "",
         )
     )
 
@@ -902,12 +946,14 @@ You can switch between debugging :ref:`debugging_tools` using
     - On-board
     - Default"""
         )
-        for (tool_name, tool_data) in sorted(board["debug"]["tools"].items()):
+        for tool_name, tool_data in sorted(board["debug"]["tools"].items()):
             lines.append(
-                """  * - :ref:`debugging_tool_{name}`
+                """  * - {tool}
     - {onboard}
     - {default}""".format(
-                    name=tool_name,
+                    tool=f"``{tool_name}``"
+                    if tool_name in SKIP_DEBUG_TOOLS
+                    else f":ref:`debugging_tool_{tool_name}`",
                     onboard="Yes" if tool_data.get("onboard") else "",
                     default="Yes" if tool_name == default_debug_tool else "",
                 )
@@ -984,7 +1030,10 @@ Boards
     for tool, platforms in tool_to_platforms.items():
         tool_path = os.path.join(DOCS_ROOT_DIR, "plus", "debug-tools", "%s.rst" % tool)
         if not os.path.isfile(tool_path):
-            click.secho("Unknown debug tool `%s`" % tool, fg="red")
+            if tool in SKIP_DEBUG_TOOLS:
+                click.secho("Skipped debug tool `%s`" % tool, fg="yellow")
+            else:
+                click.secho("Unknown debug tool `%s`" % tool, fg="red")
             continue
         platforms = sorted(set(platforms))
 

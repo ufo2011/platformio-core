@@ -1,6 +1,6 @@
 lint:
-	pylint -j 6 --rcfile=./.pylintrc ./tests
-	pylint -j 6 --rcfile=./.pylintrc ./platformio
+	pylint --rcfile=./.pylintrc ./tests
+	pylint --rcfile=./.pylintrc ./platformio
 
 isort:
 	isort ./platformio
@@ -11,7 +11,7 @@ format:
 	black ./tests
 
 test:
-	py.test --verbose --exitfirst -n 6 --dist=loadscope tests --ignore tests/test_examples.py
+	pytest --verbose --exitfirst -n 6 --dist=loadscope tests --ignore tests/test_examples.py
 
 before-commit: isort format lint
 

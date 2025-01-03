@@ -25,8 +25,7 @@ from platformio.package.download import FileDownloader
 from platformio.package.lockfile import LockFile
 
 
-class PackageManagerDownloadMixin(object):
-
+class PackageManagerDownloadMixin:
     DOWNLOAD_CACHE_EXPIRE = 86400 * 30  # keep package in a local cache for 1 month
 
     def compute_download_path(self, *args):
@@ -62,7 +61,7 @@ class PackageManagerDownloadMixin(object):
             self.set_download_utime(dl_path)
             return dl_path
 
-        with_progress = not silent and not app.is_disabled_progressbar()
+        with_progress = not app.is_disabled_progressbar()
         tmp_fd, tmp_path = tempfile.mkstemp(dir=self.get_download_dir())
         try:
             with LockFile(dl_path):
@@ -70,8 +69,8 @@ class PackageManagerDownloadMixin(object):
                     fd = FileDownloader(url)
                     fd.set_destination(tmp_path)
                     fd.start(with_progress=with_progress, silent=silent)
-                except IOError as e:
-                    raise_error = not with_progress
+                except IOError as exc:
+                    raise_error = not silent
                     if with_progress:
                         try:
                             fd = FileDownloader(url)
@@ -86,7 +85,7 @@ class PackageManagerDownloadMixin(object):
                                 fg="red",
                             )
                         )
-                        raise e
+                        raise exc
             if checksum:
                 fd.verify(checksum)
             os.close(tmp_fd)

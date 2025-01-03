@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
-
 import getpass
 import hashlib
 import json
 import os
 import platform
 import socket
+import time
 import uuid
 
 from platformio import __version__, exception, fs, proc
@@ -60,25 +59,33 @@ DEFAULT_SETTINGS = {
         "value": get_default_projects_dir(),
         "validator": projects_dir_validate,
     },
+    "enable_proxy_strict_ssl": {
+        "description": "Verify the proxy server certificate against the list of supplied CAs",
+        "value": True,
+    },
 }
 
 SESSION_VARS = {
     "command_ctx": None,
-    "force_option": False,
     "caller_id": None,
     "custom_project_conf": None,
+    "pause_telemetry": False,
 }
 
 
-class State(object):
+def resolve_state_path(conf_option_dir, file_name, ensure_dir_exists=True):
+    state_dir = ProjectConfig.get_instance().get("platformio", conf_option_dir)
+    if ensure_dir_exists and not os.path.isdir(state_dir):
+        os.makedirs(state_dir)
+    return os.path.join(state_dir, file_name)
+
+
+class State:
     def __init__(self, path=None, lock=False):
         self.path = path
         self.lock = lock
         if not self.path:
-            core_dir = ProjectConfig.get_instance().get("platformio", "core_dir")
-            if not os.path.isdir(core_dir):
-                os.makedirs(core_dir)
-            self.path = os.path.join(core_dir, "appstate.json")
+            self.path = resolve_state_path("core_dir", "appstate.json")
         self._storage = {}
         self._lockfile = None
         self.modified = False
@@ -103,8 +110,10 @@ class State(object):
             try:
                 with open(self.path, mode="w", encoding="utf8") as fp:
                     fp.write(json.dumps(self._storage))
-            except IOError:
-                raise exception.HomeDirPermissionsError(os.path.dirname(self.path))
+            except IOError as exc:
+                raise exception.HomeDirPermissionsError(
+                    os.path.dirname(self.path)
+                ) from exc
         self._unlock_state_file()
 
     def _lock_state_file(self):
@@ -113,8 +122,8 @@ class State(object):
         self._lockfile = LockFile(self.path)
         try:
             self._lockfile.acquire()
-        except IOError:
-            raise exception.HomeDirPermissionsError(os.path.dirname(self.path))
+        except IOError as exc:
+            raise exception.HomeDirPermissionsError(os.path.dirname(self.path)) from exc
 
     def _unlock_state_file(self):
         if hasattr(self, "_lockfile") and self._lockfile:
@@ -169,8 +178,8 @@ def sanitize_setting(name, value):
                 value = str(value).lower() in ("true", "yes", "y", "1")
         elif isinstance(defdata["value"], int):
             value = int(value)
-    except Exception:
-        raise exception.InvalidSettingValue(value, name)
+    except Exception as exc:
+        raise exception.InvalidSettingValue(value, name) from exc
     return value
 
 
@@ -227,13 +236,7 @@ def set_session_var(name, value):
 
 
 def is_disabled_progressbar():
-    return any(
-        [
-            get_session_var("force_option"),
-            proc.is_ci(),
-            os.getenv("PLATFORMIO_DISABLE_PROGRESSBAR") == "true",
-        ]
-    )
+    return os.getenv("PLATFORMIO_DISABLE_PROGRESSBAR") == "true"
 
 
 def get_cid():
@@ -251,7 +254,12 @@ def get_cid():
     cid = str(cid)
     if IS_WINDOWS or os.getuid() > 0:  # pylint: disable=no-member
         set_state_item("cid", cid)
+        set_state_item("created_at", int(time.time()))
     return cid
+
+
+def get_project_id(project_dir):
+    return hashlib.sha1(hashlib_encode_data(project_dir)).hexdigest()
 
 
 def get_user_agent():
@@ -266,6 +274,8 @@ def get_user_agent():
         data.append("IDE/%s" % os.getenv("PLATFORMIO_IDE"))
     data.append("Python/%s" % platform.python_version())
     data.append("Platform/%s" % platform.platform())
+    if not get_setting("enable_telemetry"):
+        data.append("Telemetry/0")
     return " ".join(data)
 
 

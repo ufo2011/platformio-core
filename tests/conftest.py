@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import email
+import functools
 import imaplib
 import os
 import time
@@ -20,7 +21,9 @@ import time
 import pytest
 from click.testing import CliRunner
 
-from platformio.clients import http
+from platformio import http
+from platformio.package.meta import PackageSpec, PackageType
+from platformio.registry.client import RegistryClient
 
 
 def pytest_configure(config):
@@ -93,9 +96,9 @@ def without_internet(monkeypatch):
 @pytest.fixture
 def receive_email():  # pylint:disable=redefined-outer-name, too-many-locals
     def _receive_email(from_who):
-        test_email = os.environ.get("TEST_EMAIL_LOGIN")
-        test_password = os.environ.get("TEST_EMAIL_PASSWORD")
-        imap_server = os.environ.get("TEST_EMAIL_IMAP_SERVER") or "imap.gmail.com"
+        test_email = os.environ["TEST_EMAIL_LOGIN"]
+        test_password = os.environ["TEST_EMAIL_PASSWORD"]
+        imap_server = os.environ["TEST_EMAIL_IMAP_SERVER"]
 
         def get_body(msg):
             if msg.is_multipart():
@@ -131,3 +134,17 @@ def receive_email():  # pylint:disable=redefined-outer-name, too-many-locals
         return result
 
     return _receive_email
+
+
+@pytest.fixture(scope="session")
+def get_pkg_latest_version():
+    @functools.lru_cache()
+    def wrap(spec, pkg_type=None):
+        if not isinstance(spec, PackageSpec):
+            spec = PackageSpec(spec)
+        pkg_type = pkg_type or PackageType.LIBRARY
+        client = RegistryClient()
+        pkg = client.get_package(pkg_type, spec.owner, spec.name)
+        return pkg["version"]["name"]
+
+    return wrap

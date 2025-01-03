@@ -26,7 +26,7 @@ from platformio.package.pack import PackagePacker
     "package",
     default=os.getcwd,
     metavar="<source directory, tar.gz or zip>",
-    type=click.Path(exists=True, file_okay=True, dir_okay=True, resolve_path=True),
+    type=click.Path(exists=True, file_okay=True, dir_okay=True),
 )
 @click.option(
     "-o", "--output", help="A destination path (folder or a full path to file)"
@@ -39,7 +39,7 @@ def package_pack_cmd(package, output):
         ManifestSchema().load_manifest(
             ManifestParserFactory.new_from_archive(archive_path).as_dict()
         )
-    except ManifestValidationError as e:
+    except ManifestValidationError as exc:
         os.remove(archive_path)
-        raise e
+        raise exc
     click.secho('Wrote a tarball to "%s"' % archive_path, fg="green")

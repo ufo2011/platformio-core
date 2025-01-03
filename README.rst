@@ -1,25 +1,21 @@
-.. image:: https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/banner-direct.svg
-    :target: https://github.com/vshymanskyy/StandWithUkraine/blob/main/docs/README.md
-    :alt:  SWUbanner
-
 PlatformIO Core
 ===============
 
 .. image:: https://github.com/platformio/platformio-core/workflows/Core/badge.svg
     :target: https://docs.platformio.org/en/latest/core/index.html
     :alt:  CI Build for PlatformIO Core
-.. image:: https://github.com/platformio/platformio-core/workflows/Examples/badge.svg
-    :target: https://github.com/platformio/platformio-examples
-    :alt:  CI Build for dev-platform examples
 .. image:: https://github.com/platformio/platformio-core/workflows/Docs/badge.svg
     :target: https://docs.platformio.org?utm_source=github&utm_medium=core
     :alt:  CI Build for Docs
+.. image:: https://github.com/platformio/platformio-core/workflows/Examples/badge.svg
+    :target: https://github.com/platformio/platformio-examples
+    :alt:  CI Build for dev-platform examples
+.. image:: https://github.com/platformio/platformio-core/workflows/Projects/badge.svg
+    :target: https://docs.platformio.org/en/latest/tutorials/index.html#projects
+    :alt:  CI Build for the Community Projects
 .. image:: https://img.shields.io/pypi/v/platformio.svg
     :target: https://pypi.python.org/pypi/platformio/
     :alt: Latest Version
-.. image:: https://img.shields.io/badge/license-Apache%202.0-blue.svg
-    :target: https://pypi.python.org/pypi/platformio/
-    :alt:  License
 .. image:: https://img.shields.io/badge/PlatformIO-Labs-orange.svg
    :alt: PlatformIO Labs
    :target: https://piolabs.com/?utm_source=github&utm_medium=core
@@ -40,9 +36,11 @@ PlatformIO Core
 .. image:: https://raw.githubusercontent.com/platformio/platformio-web/develop/app/images/platformio-ide-laptop.png
     :target: https://platformio.org?utm_source=github&utm_medium=core
 
-`PlatformIO <https://platformio.org>`_ is a professional collaborative platform for embedded development.
+`PlatformIO <https://platformio.org>`_: Your Gateway to Embedded Software Development Excellence.
 
-**A place where Developers and Teams have true Freedom! No more vendor lock-in!**
+Unlock the true potential of embedded software development with
+PlatformIO's collaborative ecosystem, embracing declarative principles,
+test-driven methodologies, and modern toolchains for unrivaled success.
 
 * Open source, maximum permissive Apache 2.0 license
 * Cross-platform IDE and Unified Debugger
@@ -99,3 +97,7 @@ Copyright (c) 2014-present PlatformIO <contact@platformio.org>
 
 The PlatformIO is licensed under the permissive Apache 2.0 license,
 so you can use it in both commercial and personal projects with confidence.
+
+.. image:: https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/banner-direct.svg
+    :target: https://github.com/vshymanskyy/StandWithUkraine/blob/main/docs/README.md
+    :alt:  SWUbanner

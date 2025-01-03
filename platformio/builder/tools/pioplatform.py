@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import absolute_import
-
 import os
 import sys
 
@@ -35,9 +33,7 @@ from platformio.project.config import ProjectOptions
 @util.memoized()
 def _PioPlatform():
     env = DefaultEnvironment()
-    p = PlatformFactory.new(os.path.dirname(env["PLATFORM_MANIFEST"]))
-    p.configure_project_packages(env["PIOENV"], COMMAND_LINE_TARGETS)
-    return p
+    return PlatformFactory.from_env(env["PIOENV"], targets=COMMAND_LINE_TARGETS)
 
 
 def PioPlatform(_):
@@ -51,8 +47,8 @@ def BoardConfig(env, board=None):
             board = board or env.get("BOARD")
             assert board, "BoardConfig: Board is not defined"
             return p.board_config(board)
-        except (AssertionError, UnknownBoard) as e:
-            sys.stderr.write("Error: %s\n" % str(e))
+        except (AssertionError, UnknownBoard) as exc:
+            sys.stderr.write("Error: %s\n" % str(exc))
             env.Exit(1)
     return None
 
@@ -79,9 +75,11 @@ def LoadPioPlatform(env):
             continue
         env.PrependENVPath(
             "PATH",
-            os.path.join(pkg.path, "bin")
-            if os.path.isdir(os.path.join(pkg.path, "bin"))
-            else pkg.path,
+            (
+                os.path.join(pkg.path, "bin")
+                if os.path.isdir(os.path.join(pkg.path, "bin"))
+                else pkg.path
+            ),
         )
         if (
             not IS_WINDOWS

@@ -15,22 +15,17 @@
 import os
 import re
 import subprocess
-import sys
 from urllib.parse import urlparse
 
 from platformio import proc
-from platformio.package.exception import (
-    PackageException,
-    PlatformioException,
-    UserSideException,
-)
+from platformio.exception import UserSideException
 
 
-class VCSBaseException(PackageException):
+class VCSBaseException(UserSideException):
     pass
 
 
-class VCSClientFactory(object):
+class VCSClientFactory:
     @staticmethod
     def new(src_dir, remote_url, silent=False):
         result = urlparse(remote_url)
@@ -47,17 +42,18 @@ class VCSClientFactory(object):
         if not type_:
             raise VCSBaseException("VCS: Unknown repository type %s" % remote_url)
         try:
-            obj = getattr(sys.modules[__name__], "%sClient" % type_.capitalize())(
+            obj = globals()["%sClient" % type_.capitalize()](
                 src_dir, remote_url, tag, silent
             )
             assert isinstance(obj, VCSClientBase)
             return obj
-        except (AttributeError, AssertionError):
-            raise VCSBaseException("VCS: Unknown repository type %s" % remote_url)
+        except (KeyError, AssertionError) as exc:
+            raise VCSBaseException(
+                "VCS: Unknown repository type %s" % remote_url
+            ) from exc
 
 
-class VCSClientBase(object):
-
+class VCSClientBase:
     command = None
 
     def __init__(self, src_dir, remote_url=None, tag=None, silent=False):
@@ -74,10 +70,10 @@ class VCSClientBase(object):
                 self.get_cmd_output(["--version"])
             else:
                 assert self.run_cmd(["--version"])
-        except (AssertionError, OSError, PlatformioException):
-            raise UserSideException(
+        except (AssertionError, OSError) as exc:
+            raise VCSBaseException(
                 "VCS: `%s` client is not installed in your system" % self.command
-            )
+            ) from exc
         return True
 
     @property
@@ -109,8 +105,10 @@ class VCSClientBase(object):
         try:
             subprocess.check_call(args, **kwargs)
             return True
-        except subprocess.CalledProcessError as e:
-            raise VCSBaseException("VCS: Could not process command %s" % e.cmd)
+        except subprocess.CalledProcessError as exc:
+            raise VCSBaseException(
+                "VCS: Could not process command %s" % exc.cmd
+            ) from exc
 
     def get_cmd_output(self, args, **kwargs):
         args = [self.command] + args
@@ -125,7 +123,6 @@ class VCSClientBase(object):
 
 
 class GitClient(VCSClientBase):
-
     command = "git"
     _configured = False
 
@@ -153,10 +150,10 @@ class GitClient(VCSClientBase):
     def check_client(self):
         try:
             return VCSClientBase.check_client(self)
-        except UserSideException:
+        except UserSideException as exc:
             raise UserSideException(
                 "Please install Git client from https://git-scm.com/downloads"
-            )
+            ) from exc
 
     def get_branches(self):
         output = self.get_cmd_output(["branch"])
@@ -229,7 +226,6 @@ class GitClient(VCSClientBase):
 
 
 class HgClient(VCSClientBase):
-
     command = "hg"
 
     def export(self):
@@ -253,7 +249,6 @@ class HgClient(VCSClientBase):
 
 
 class SvnClient(VCSClientBase):
-
     command = "svn"
 
     def export(self):

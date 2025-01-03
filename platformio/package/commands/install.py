@@ -20,10 +20,13 @@ import click
 
 from platformio import fs
 from platformio.package.exception import UnknownPackageError
+from platformio.package.manager.core import get_core_package_dir
 from platformio.package.manager.library import LibraryPackageManager
 from platformio.package.manager.platform import PlatformPackageManager
 from platformio.package.manager.tool import ToolPackageManager
-from platformio.package.meta import PackageSpec
+from platformio.package.meta import PackageCompatibility, PackageSpec
+from platformio.platform.exception import UnknownPlatform
+from platformio.platform.factory import PlatformFactory
 from platformio.project.config import ProjectConfig
 from platformio.project.savedeps import pkg_to_save_spec, save_project_dependencies
 from platformio.test.result import TestSuite
@@ -37,7 +40,7 @@ from platformio.test.runners.factory import TestRunnerFactory
     "-d",
     "--project-dir",
     default=os.getcwd,
-    type=click.Path(exists=True, file_okay=False, dir_okay=True, resolve_path=True),
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
 )
 @click.option("-e", "--environment", "environments", multiple=True)
 @click.option("-p", "--platform", "platforms", metavar="SPECIFICATION", multiple=True)
@@ -53,13 +56,13 @@ from platformio.test.runners.factory import TestRunnerFactory
 @click.option(
     "--storage-dir",
     default=None,
-    type=click.Path(exists=True, file_okay=False, dir_okay=True, resolve_path=True),
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
     help="Custom Package Manager storage for global packages",
 )
 @click.option("-f", "--force", is_flag=True, help="Reinstall package if it exists")
 @click.option("-s", "--silent", is_flag=True, help="Suppress progress reporting")
 def package_install_cmd(**options):
-    if options.get("global"):
+    if options.get("global") or options.get("storage_dir"):
         install_global_dependencies(options)
     else:
         install_project_dependencies(options)
@@ -100,9 +103,7 @@ def install_project_dependencies(options):
             if environments and env not in environments:
                 continue
             if not options.get("silent"):
-                click.echo(
-                    "Resolving %s environment packages..." % click.style(env, fg="cyan")
-                )
+                click.echo("Resolving %s dependencies..." % click.style(env, fg="cyan"))
             already_up_to_date = not install_project_env_dependencies(env, options)
             if not options.get("silent") and already_up_to_date:
                 click.secho("Already up-to-date.", fg="green")
@@ -120,7 +121,7 @@ def install_project_env_dependencies(project_env, options=None):
     # custom tools
     if options.get("tools"):
         installed_conds.append(_install_project_env_custom_tools(project_env, options))
-    # custom ibraries
+    # custom libraries
     if options.get("libraries"):
         installed_conds.append(
             _install_project_env_custom_libraries(project_env, options)
@@ -152,6 +153,8 @@ def _install_project_env_platform(project_env, options):
         skip_dependencies=options.get("skip_dependencies"),
         force=options.get("force"),
     )
+    # ensure SCons is installed
+    get_core_package_dir("tool-scons")
     return not already_up_to_date
 
 
@@ -204,8 +207,26 @@ def _install_project_env_libraries(project_env, options):
     _uninstall_project_unused_libdeps(project_env, options)
     already_up_to_date = not options.get("force")
     config = ProjectConfig.get_instance()
+
+    compatibility_qualifiers = {}
+    if config.get(f"env:{project_env}", "platform", None):
+        try:
+            p = PlatformFactory.new(config.get(f"env:{project_env}", "platform"))
+            compatibility_qualifiers["platforms"] = [p.name]
+        except UnknownPlatform:
+            pass
+        if config.get(f"env:{project_env}", "framework"):
+            compatibility_qualifiers["frameworks"] = config.get(
+                f"env:{project_env}", "framework"
+            )
+
     env_lm = LibraryPackageManager(
-        os.path.join(config.get("platformio", "libdeps_dir"), project_env)
+        os.path.join(config.get("platformio", "libdeps_dir"), project_env),
+        compatibility=(
+            PackageCompatibility(**compatibility_qualifiers)
+            if compatibility_qualifiers
+            else None
+        ),
     )
     private_lm = LibraryPackageManager(
         os.path.join(config.get("platformio", "lib_dir"))
@@ -264,7 +285,8 @@ def _uninstall_project_unused_libdeps(project_env, options):
                 lm.uninstall(spec)
             except UnknownPackageError:
                 pass
-    storage_dir.mkdir(parents=True, exist_ok=True)
+    if not storage_dir.is_dir():
+        storage_dir.mkdir(parents=True)
     integrity_dat.write_text("\n".join(lib_deps), encoding="utf-8")
 
 
@@ -275,7 +297,11 @@ def _install_project_private_library_deps(private_pkg, private_lm, env_lm, optio
         if not spec.external and not spec.owner:
             continue
         pkg = private_lm.get_package(spec)
-        if not pkg and not env_lm.get_package(spec):
+        if (
+            not pkg
+            and not private_lm.get_package(spec)
+            and not env_lm.get_package(spec)
+        ):
             pkg = env_lm.install(
                 spec,
                 skip_dependencies=True,

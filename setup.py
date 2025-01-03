@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
 from setuptools import find_packages, setup
 
 from platformio import (
@@ -24,28 +23,7 @@ from platformio import (
     __url__,
     __version__,
 )
-
-
-minimal_requirements = [
-    "bottle==0.12.*",
-    "click%s" % (">=8.0.4,<9" if sys.version_info >= (3, 7) else "==8.0.4"),
-    "colorama",
-    "marshmallow==%s" % ("3.*" if sys.version_info >= (3, 7) else "3.14.1"),
-    "pyelftools>=0.27,<1",
-    "pyserial==3.*",
-    "requests==2.*",
-    "semantic_version==2.9.*",
-    "tabulate==0.8.*",
-    "zeroconf<1",
-]
-
-home_requirements = [
-    "aiofiles==0.8.*",
-    "ajsonrpc==1.*",
-    "starlette==%s" % ("0.20.*" if sys.version_info >= (3, 7) else "0.19.1"),
-    "uvicorn==%s" % ("0.17.*" if sys.version_info >= (3, 7) else "0.16.0"),
-    "wsproto==%s" % ("1.1.*" if sys.version_info >= (3, 7) else "1.0.0"),
-]
+from platformio.dependencies import get_pip_dependencies
 
 setup(
     name=__title__,
@@ -56,17 +34,18 @@ setup(
     author_email=__email__,
     url=__url__,
     license=__license__,
-    install_requires=minimal_requirements + home_requirements,
+    install_requires=get_pip_dependencies(),
     python_requires=">=3.6",
-    packages=find_packages(exclude=["tests.*", "tests"]) + ["scripts"],
+    packages=find_packages(include=["platformio", "platformio.*"]),
     package_data={
         "platformio": [
-            "project/tpls/*/.*.tpl",
-            "project/tpls/*/*.tpl",
-            "project/tpls/*/*/*.tpl",
-            "project/tpls/*/.*/*.tpl",
-        ],
-        "scripts": ["99-platformio-udev.rules"],
+            "assets/system/99-platformio-udev.rules",
+            "project/integration/tpls/*/*.tpl",
+            "project/integration/tpls/*/.*.tpl",  # include hidden files
+            "project/integration/tpls/*/.*/*.tpl",  # include hidden folders
+            "project/integration/tpls/*/*/*.tpl",  # NetBeans
+            "project/integration/tpls/*/*/*/*.tpl",  # NetBeans
+        ]
     },
     entry_points={
         "console_scripts": [
